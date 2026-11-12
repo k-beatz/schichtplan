@@ -10,16 +10,16 @@
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --line: #e2dfd6; --text: #1f1e1b; --muted: #6d6a62;
     --accent: #2f5fd0; --err: #c0392b; --warn: #b7791f; --info: #4a6785; --ok: #2d7a46;
-    --weekend: #f0eee6; --group: #ebe9e1; --hatch: #e2dfd4; --strong: #b9b5a8; --chip: #1f1e1b;
+    --weekend: #f0eee6; --holiday: #f6e3df; --group: #ebe9e1; --hatch: #e2dfd4; --strong: #b9b5a8; --chip: #1f1e1b;
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
     --bg: #17181b; --panel: #202226; --line: #34373d; --text: #e9e7e1; --muted: #a09d95;
     --accent: #7ea2f5; --err: #f08a7c; --warn: #e0b060; --info: #9bb6d4; --ok: #7cc795;
-    --weekend: #292b30; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark } }
+    --weekend: #292b30; --holiday: #40302f; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark } }
   :root[data-theme="dark"] {
     --bg: #17181b; --panel: #202226; --line: #34373d; --text: #e9e7e1; --muted: #a09d95;
     --accent: #7ea2f5; --err: #f08a7c; --warn: #e0b060; --info: #9bb6d4; --ok: #7cc795;
-    --weekend: #292b30; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark }
+    --weekend: #292b30; --holiday: #40302f; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; padding-block: 14px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -47,6 +47,8 @@
   table.grid th.name { position: sticky; left: 0; z-index: 3; text-align: left; min-width: 150px; padding: 2px 8px; font-weight: 500; color: var(--text); white-space: nowrap; }
   table.grid thead th.name { z-index: 4; }
   table.grid .we { background: var(--weekend); }
+  table.grid .hol { background: var(--holiday); }
+  .swatch { display: inline-block; width: 12px; height: 12px; background: var(--holiday); border: 1px solid var(--line); vertical-align: -1px; }
   table.grid .monthstart { border-left: 2px solid var(--strong); }
   table.grid tr.group th { text-align: left; background: var(--group); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); position: sticky; left: 0; }
   td.cell { cursor: pointer; }
@@ -71,6 +73,9 @@
   table.plain th, table.plain td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: middle; }
   table.plain th { font-size: 12px; color: var(--muted); font-weight: 500; }
   .scroll { overflow-x: auto; }
+  td.neg { color: var(--err); font-weight: 600; }
+  h3 { font-size: 14px; margin: 22px 0 6px; }
+  table.plain td { font-variant-numeric: tabular-nums; }
   .form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 14px; }
   .days label { flex-direction: row; display: inline-flex; gap: 2px; margin-right: 6px; align-items: center; }
   #pop { position: absolute; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.15); display: none; width: 220px; }
@@ -85,6 +90,7 @@
   <h1>Schichtplan</h1>
   <label>Beginn (Montag)<input type="date" id="start"></label>
   <label>Wochen<input type="number" id="weeks" min="1" max="26" style="width:70px"></label>
+  <label>Tage am Stück höchstens<select id="maxRun"><option value="6">6</option><option value="7">7</option></select></label>
   <button class="primary" id="variant">Neue Variante berechnen</button>
   <button id="clearManual">Handänderungen verwerfen</button>
   <button id="reset">Beispieldaten laden</button>
@@ -115,6 +121,27 @@ const Planner = (() => {
   const dow = s => (toDate(s).getUTCDay() + 6) % 7;   // 0 = Montag
   const nextMonday = from => { let s = fmt(from); do { s = addDays(s, 1); } while (dow(s) !== 0); return s; };
   const pref = (p, s) => (p.prefs && p.prefs[s]) || 'ok';
+  const HOURS = { T_HG: 6, T_LILA: 4 };          // alle anderen Schichten: 8 Stunden zzgl. 30 Minuten Pause
+  const hours = s => HOURS[s] ?? 8;
+
+  // Gesetzliche Feiertage in Nordrhein-Westfalen
+  function easter(y) {
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+      g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+      l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451), n = h + l - 7 * m + 114;
+    return `${y}-${String(Math.floor(n / 31)).padStart(2, '0')}-${String(n % 31 + 1).padStart(2, '0')}`;
+  }
+  const holCache = {};
+  function holidays(y) {
+    if (holCache[y]) return holCache[y];
+    const e = easter(y), h = {};
+    h[y + '-01-01'] = 'Neujahr'; h[addDays(e, -2)] = 'Karfreitag'; h[addDays(e, 1)] = 'Ostermontag';
+    h[y + '-05-01'] = 'Tag der Arbeit'; h[addDays(e, 39)] = 'Christi Himmelfahrt'; h[addDays(e, 50)] = 'Pfingstmontag';
+    h[addDays(e, 60)] = 'Fronleichnam'; h[y + '-10-03'] = 'Tag der Deutschen Einheit'; h[y + '-11-01'] = 'Allerheiligen';
+    h[y + '-12-25'] = '1. Weihnachtstag'; h[y + '-12-26'] = '2. Weihnachtstag';
+    return holCache[y] = h;
+  }
+  const holiday = d => holidays(+d.slice(0, 4))[d];
 
   function indexEntries(state) {
     const by = {};
@@ -155,6 +182,7 @@ const Planner = (() => {
     const E = indexEntries(state);
     const plan = {}; people.forEach(p => plan[p.id] = {});
     const notes = [];
+    const maxRun = state.maxRun || 6;
     // Variante: Startwert 0 ergibt den Grundplan, jeder andere mischt Gleichstände anders
     let seed = state.seed | 0;
     const rnd = () => { if (!state.seed) return 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -205,7 +233,7 @@ const Planner = (() => {
         weShift[t.id][s]++; weDays[t.id] += 2; lastDuty[t.id] = w;
         comp.add(t.id + '|' + days[w * 7 + 3]);                         // Donnerstag und Freitag davor frei
         comp.add(t.id + '|' + days[w * 7 + 4]);
-        if (days[w * 7 + 11]) comp.add(t.id + '|' + days[w * 7 + 11]);  // Freitag danach frei: höchstens 6 Tage am Stück
+        if (maxRun < 7 && days[w * 7 + 11]) comp.add(t.id + '|' + days[w * 7 + 11]);  // Freitag danach frei, damit es höchstens 6 Tage am Stück sind
       });
       const satPick = {};
       for (const d of [sat, sun]) {
@@ -317,7 +345,7 @@ const Planner = (() => {
   }
 
   function validate(state, days, plan) {
-    const E = indexEntries(state); const out = [];
+    const E = indexEntries(state); const out = []; const maxRun = state.maxRun || 6;
     const name = Object.fromEntries(state.people.map(p => [p.id, p.name]));
     const add = (level, date, pid, text) => out.push({ level, date, pid, text });
     for (const d of days) {
@@ -335,7 +363,7 @@ const Planner = (() => {
         const s = plan[p.id][d];
         if (!s) { run = 0; if (E.wishes(p.id, d).some(w => w.type === 'schicht')) add('info', d, p.id, 'Schichtwunsch nicht erfüllt (frei)'); return; }
         run++;
-        if (run === 7) add('error', d, p.id, 'mehr als 6 Tage am Stück');
+        if (run === maxRun + 1) add('error', d, p.id, `mehr als ${maxRun} Tage am Stück`);
         if (E.hard(p.id, d)) add('error', d, p.id, 'ist abwesend, aber eingeteilt');
         else if (E.soft(p.id, d)) add('info', d, p.id, 'Wunsch „frei“ nicht erfüllt');
         if (pref(p, s) === 'nie') add('error', d, p.id, `darf ${SHIFTS[s].label} nicht übernehmen`);
@@ -354,10 +382,13 @@ const Planner = (() => {
 
   function stats(state, days, plan, E) {
     return state.people.map(p => {
-      const r = { pid: p.id, name: p.name, group: p.group, total: 0, weekend: 0, by: {}, wishes: 0, met: 0 };
+      const r = { pid: p.id, name: p.name, group: p.group, total: 0, weekend: 0, by: {}, wishes: 0, met: 0, soll: 0, ist: 0, months: {} };
       for (const d of days) {
         const s = plan[p.id][d];
-        if (s) { r.total++; r.by[s] = (r.by[s] || 0) + 1; if (dow(d) > 4) r.weekend++; }
+        const m = r.months[d.slice(0, 7)] = r.months[d.slice(0, 7)] || { soll: 0, ist: 0 };
+        if (s) { r.total++; r.by[s] = (r.by[s] || 0) + 1; if (dow(d) > 4) r.weekend++; r.ist += hours(s); m.ist += hours(s); }
+        // Soll: 8 Stunden je Werktag Montag bis Freitag, ohne Feiertage und ohne Abwesenheit
+        if (dow(d) < 5 && !holiday(d) && !E.hard(p.id, d)) { r.soll += 8; m.soll += 8; }
         if (E.soft(p.id, d)) { r.wishes++; if (!s) r.met++; }
         for (const w of E.wishes(p.id, d)) {
           r.wishes++;
@@ -378,10 +409,10 @@ const Planner = (() => {
     people.push({ id: 'f2', name: 'T 09:00–15:00', group: 'fixed', fixedShift: 'T_HG', fixedDays: [0, 1, 2, 3, 4] });
     people.push({ id: 'f3', name: 'T 08:00–12:00', group: 'fixed', fixedShift: 'T_LILA', fixedDays: [3] });
     for (let i = 1; i <= 6; i++) people.push({ id: 'a' + i, name: 'Aushilfe ' + i, group: 'aushilfe', prefs: {} });
-    return { start: nextMonday(today), weeks: 13, seed: 0, people, entries: [], overrides: {} };
+    return { start: nextMonday(today), weeks: 13, seed: 0, maxRun: 6, people, entries: [], overrides: {} };
   }
 
-  return { SHIFTS, ROT, WE, DOW, generate, defaultState, addDays, dow, nextMonday };
+  return { SHIFTS, ROT, WE, DOW, generate, defaultState, addDays, dow, nextMonday, holiday, easter };
 })();
 if (typeof module !== 'undefined') module.exports = Planner;
 </script>
@@ -404,7 +435,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
   const update = () => { save(); result = Planner.generate(state); render(); };
 
   function render() {
-    $('#start').value = state.start; $('#weeks').value = state.weeks;
+    $('#start').value = state.start; $('#weeks').value = state.weeks; $('#maxRun').value = state.maxRun || 6;
     $('#tabs').innerHTML = [['plan', 'Plan'], ['people', 'Personen'], ['entries', 'Wünsche und Abwesenheiten'], ['stats', 'Auswertung']]
       .map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
     $('#view').innerHTML = { plan: viewPlan, people: viewPeople, entries: viewEntries, stats: viewStats }[tab]();
@@ -417,7 +448,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
     const dayErr = {}; const cellBad = {};
     for (const w of warnings) if (w.level === 'error') { if (w.pid) cellBad[w.pid + '|' + w.date] = 1; else dayErr[w.date] = 1; }
     const E = {}; for (const e of state.entries) for (const d of days) if (e.from <= d && d <= e.to) E[e.pid + '|' + d] = e.type === 'abwesend' ? 'off' : (E[e.pid + '|' + d] || 'wish');
-    const cls = d => (Planner.dow(d) > 4 ? ' we' : '') + (d.slice(8) === '01' ? ' monthstart' : '');
+    const cls = d => (Planner.dow(d) > 4 ? ' we' : '') + (Planner.holiday(d) ? ' hol' : '') + (d.slice(8) === '01' ? ' monthstart' : '');
     let h = `<div class="summary">
       ${n('error') ? `<span class="pill error">${n('error')} Regelverstöße</span>` : '<span class="pill ok">Alle Pflichtschichten besetzt, keine Regelverstöße</span>'}
       <span class="pill warn">${n('warn')} Warnungen</span><span class="pill info">${n('info')} Hinweise</span></div>
@@ -428,7 +459,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
       let j = i; while (j < days.length && days[j].slice(0, 7) === days[i].slice(0, 7)) j++;
       h += `<th colspan="${j - i}" class="monthstart" style="text-align:left;padding-left:6px">${MONTHS[+days[i].slice(5, 7) - 1]} ${days[i].slice(0, 4)}</th>`; i = j;
     }
-    h += '</tr><tr><th class="name">Person</th>' + days.map(d => `<th class="${cls(d)}">${DOW[Planner.dow(d)]} ${+d.slice(8)}</th>`).join('') + '</tr></thead><tbody>';
+    h += '</tr><tr><th class="name">Person</th>' + days.map(d => `<th class="${cls(d)}" title="${Planner.holiday(d) || ''}">${DOW[Planner.dow(d)]} ${+d.slice(8)}</th>`).join('') + '</tr></thead><tbody>';
     for (const g of Object.keys(GROUPS)) {
       const ps = state.people.filter(p => p.group === g); if (!ps.length) continue;
       h += `<tr class="group"><th class="name">${GROUPS[g]}</th><td colspan="${days.length}"></td></tr>`;
@@ -445,7 +476,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
     h += '<tr class="status"><th class="name">Pflichtschichten</th>' + days.map(d => `<td class="${cls(d)} ${dayErr[d] ? 'st-error' : 'st-ok'}">${dayErr[d] ? '!' : '✓'}</td>`).join('') + '</tr>';
     h += '</tbody></table></div><div class="legend">'
       + Object.entries(SHIFTS).map(([k, s]) => `<span><span class="chip s-${k}">${s.label}</span> ${s.time}</span>`).join('')
-      + '<span>Schraffiert: abwesend</span><span>Punkt: Wunsch eingetragen</span></div>';
+      + '<span><span class="swatch"></span> Feiertag (NRW)</span><span>Schraffiert: abwesend</span><span>Punkt: Wunsch eingetragen</span></div>';
     const order = { error: 0, warn: 1, info: 2 }, lab = { error: 'Verstoß', warn: 'Warnung', info: 'Hinweis' };
     const ws = warnings.slice().sort((a, b) => order[a.level] - order[b.level] || a.date.localeCompare(b.date));
     h += '<ul class="warnings">' + ws.map(w => `<li><span class="lv ${w.level}">${lab[w.level]}</span>${DOW[Planner.dow(w.date)]} ${deDate(w.date)} · ${esc(w.text)}</li>`).join('') + '</ul>';
@@ -494,10 +525,19 @@ if (typeof module !== 'undefined') module.exports = Planner;
   function viewStats() {
     const keys = Object.keys(SHIFTS);
     const months = (state.weeks * 7) / 30.44;
-    let h = '<div class="scroll"><table class="plain"><tr><th>Person</th><th>Schichten</th>' + keys.map(k => `<th><span class="chip s-${k}">${SHIFTS[k].label}</span></th>`).join('')
-      + '<th>Wochenendtage</th><th>pro Monat</th><th>Wünsche erfüllt</th></tr>';
+    const ym = [...new Set(result.days.map(d => d.slice(0, 7)))];
+    const sign = n => (n > 0 ? '+' : '') + n;
+    let h = '<p class="hint">Soll: 8 Stunden je Werktag von Montag bis Freitag, ohne Feiertage in NRW und ohne Abwesenheit. Ist: 8 Stunden je Schicht, Pausen nicht mitgezählt. Angebrochene Monate am Anfang und Ende zählen nur mit den geplanten Tagen.</p>'
+      + '<div class="scroll"><table class="plain"><tr><th>Person</th><th>Soll (h)</th><th>Ist (h)</th><th>Saldo (h)</th>'
+      + ym.map(m => `<th>${MONTHS[+m.slice(5) - 1].slice(0, 3)}</th>`).join('') + '<th>Wochenendtage</th><th>pro Monat</th></tr>';
+    for (const r of result.stats.filter(r => r.group === 'tech'))
+      h += `<tr><td>${esc(r.name)}</td><td>${r.soll}</td><td>${r.ist}</td><td class="${r.ist < r.soll ? 'neg' : ''}">${sign(r.ist - r.soll)}</td>`
+        + ym.map(m => { const x = r.months[m]; return `<td class="${x.ist < x.soll ? 'neg' : ''}">${sign(x.ist - x.soll)}</td>`; }).join('')
+        + `<td>${r.weekend}</td><td>${(r.weekend / months).toFixed(1)}</td></tr>`;
+    h += '</table></div><h3>Schichten je Person</h3><div class="scroll"><table class="plain"><tr><th>Person</th><th>Schichten</th>'
+      + keys.map(k => `<th><span class="chip s-${k}">${SHIFTS[k].label}</span></th>`).join('') + '<th>Wochenendtage</th><th>Wünsche erfüllt</th></tr>';
     for (const r of result.stats)
-      h += `<tr><td>${esc(r.name)}</td><td>${r.total}</td>${keys.map(k => `<td>${r.by[k] || ''}</td>`).join('')}<td>${r.weekend}</td><td>${(r.weekend / months).toFixed(1)}</td><td>${r.wishes ? r.met + ' von ' + r.wishes : ''}</td></tr>`;
+      h += `<tr><td>${esc(r.name)}</td><td>${r.total}</td>${keys.map(k => `<td>${r.by[k] || ''}</td>`).join('')}<td>${r.weekend}</td><td>${r.wishes ? r.met + ' von ' + r.wishes : ''}</td></tr>`;
     return h + '</table></div>';
   }
 
@@ -509,6 +549,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
     state.start = s; update();
   };
   $('#weeks').onchange = e => { state.weeks = Math.max(1, Math.min(26, +e.target.value || 13)); update(); };
+  $('#maxRun').onchange = e => { state.maxRun = +e.target.value; update(); };
   $('#variant').onclick = () => { state.seed = 1 + Math.floor(Math.random() * 1e9); update(); };
   $('#clearManual').onclick = () => { state.overrides = {}; update(); };
   let armed = 0;

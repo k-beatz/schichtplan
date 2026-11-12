@@ -5,7 +5,7 @@ const src = fs.readFileSync(__dirname + '/index.html', 'utf8').match(/<script id
 const Planner = new Function('module', src + '; return Planner;')(undefined);
 
 const errors = r => r.warnings.filter(w => w.level === 'error');
-const maxRun = (r, pid) => { let run = 0, m = 0; for (const d of r.days) { run = r.plan[pid][d] ? run + 1 : 0; m = Math.max(m, run); } return m; };
+const maxRunOf = (r, pid) => { let run = 0, m = 0; for (const d of r.days) { run = r.plan[pid][d] ? run + 1 : 0; m = Math.max(m, run); } return m; };
 
 // 1. Grundplan über 13 Wochen
 let state = Planner.defaultState(new Date('2026-11-12T00:00:00Z'));
@@ -23,7 +23,7 @@ for (const d of r.days) {
 }
 for (const s of r.stats.filter(s => s.group === 'tech')) {
   assert.ok(s.weekend >= 8 && s.weekend <= 10, `${s.name}: ${s.weekend} Wochenendtage in 13 Wochen`);
-  assert.ok(maxRun(r, s.pid) <= 6, s.name + ': höchstens 6 Tage am Stück');
+  assert.ok(maxRunOf(r, s.pid) <= 6, s.name + ': höchstens 6 Tage am Stück');
 }
 const t1 = r.stats.find(s => s.pid === 't1'), t2 = r.stats.find(s => s.pid === 't2');
 assert.deepStrictEqual(Object.keys(t1.by).sort(), ['FRUEH', 'NS'], 'Techniker 1 nur Früh und Nacht');
@@ -59,7 +59,24 @@ for (const seed of [1, 7, 12345, 987654321]) {
   const st = Planner.defaultState(new Date('2026-11-12T00:00:00Z')); st.seed = seed;
   const v = Planner.generate(st);
   assert.deepStrictEqual(errors(v), [], 'Variante ' + seed + ' ohne Regelverstöße');
-  for (const s of v.stats.filter(s => s.group === 'tech')) assert.ok(s.weekend >= 8 && s.weekend <= 10 && maxRun(v, s.pid) <= 6);
+  for (const s of v.stats.filter(s => s.group === 'tech')) assert.ok(s.weekend >= 8 && s.weekend <= 10 && maxRunOf(v, s.pid) <= 6);
   assert.ok(!v.stats.find(s => s.pid === 't2').by.NS);
 }
 console.log('Varianten geprüft.');
+
+// 6. Feiertage NRW und Stundenkonto
+assert.strictEqual(Planner.easter(2026), '2026-04-05');
+assert.strictEqual(Planner.easter(2027), '2027-03-28');
+assert.strictEqual(Planner.holiday('2027-03-26'), 'Karfreitag');
+assert.strictEqual(Planner.holiday('2027-05-27'), 'Fronleichnam');
+assert.ok(!Planner.holiday('2026-12-24'));
+for (const maxRun of [6, 7]) {
+  const st = Planner.defaultState(new Date('2026-11-12T00:00:00Z')); st.maxRun = maxRun;
+  const v = Planner.generate(st);
+  assert.deepStrictEqual(errors(v), [], 'ohne Regelverstöße bei höchstens ' + maxRun + ' Tagen');
+  const t = v.stats.filter(s => s.group === 'tech');
+  assert.ok(t.every(s => s.soll === 63 * 8), 'Soll: 65 Werktage minus 2 Feiertage');
+  assert.ok(t.every(s => maxRunOf(v, s.pid) <= maxRun));
+  console.log('höchstens ' + maxRun + ' Tage: Saldo', t.map(s => s.ist - s.soll).join(', '), '| Warnungen', v.warnings.filter(w => w.level === 'warn').length,
+    '| Aushilfen unter der Woche', v.warnings.filter(w => /springt als Aushilfe/.test(w.text)).length);
+}

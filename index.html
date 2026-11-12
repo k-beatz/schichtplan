@@ -10,16 +10,16 @@
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --line: #e2dfd6; --text: #1f1e1b; --muted: #6d6a62;
     --accent: #2f5fd0; --err: #c0392b; --warn: #b7791f; --info: #4a6785; --ok: #2d7a46;
-    --weekend: #f0eee6; --holiday: #f6e3df; --group: #ebe9e1; --hatch: #e2dfd4; --strong: #b9b5a8; --chip: #1f1e1b;
+    --weekend: #f0eee6; --holiday: #f6e3df; --sel: #e1e9fb; --group: #ebe9e1; --hatch: #e2dfd4; --strong: #b9b5a8; --chip: #1f1e1b;
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
     --bg: #17181b; --panel: #202226; --line: #34373d; --text: #e9e7e1; --muted: #a09d95;
     --accent: #7ea2f5; --err: #f08a7c; --warn: #e0b060; --info: #9bb6d4; --ok: #7cc795;
-    --weekend: #292b30; --holiday: #40302f; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark } }
+    --weekend: #292b30; --holiday: #40302f; --sel: #2b3654; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark } }
   :root[data-theme="dark"] {
     --bg: #17181b; --panel: #202226; --line: #34373d; --text: #e9e7e1; --muted: #a09d95;
     --accent: #7ea2f5; --err: #f08a7c; --warn: #e0b060; --info: #9bb6d4; --ok: #7cc795;
-    --weekend: #292b30; --holiday: #40302f; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark }
+    --weekend: #292b30; --holiday: #40302f; --sel: #2b3654; --group: #2c2e33; --hatch: #3a3d44; --strong: #5a5e66; --chip: #1f1e1b; color-scheme: dark }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; padding-block: 14px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -52,6 +52,11 @@
   table.grid .monthstart { border-left: 2px solid var(--strong); }
   table.grid tr.group th { text-align: left; background: var(--group); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); position: sticky; left: 0; }
   td.cell { cursor: pointer; }
+  tr.prow th.name { cursor: pointer; }
+  .hasSel tr.prow:not(.sel) .chip, .hasSel tr.prow:not(.sel) .absmark { opacity: .5; }
+  .hasSel tr.prow:not(.sel) th.name { color: var(--muted); }
+  table.grid tr.sel th.name { background: var(--sel); font-weight: 700; box-shadow: inset 3px 0 0 var(--accent); }
+  table.grid tr.sel td { background-color: var(--sel); }
   td.cell:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
   td.bad { box-shadow: inset 0 0 0 2px var(--err); }
   td.off { background: repeating-linear-gradient(135deg, var(--panel), var(--panel) 4px, var(--hatch) 4px, var(--hatch) 8px) !important; }
@@ -487,7 +492,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
   const dayLabel = d => DOW[Planner.dow(d)] + ' ' + deDate(d);
   const sl = s => s ? SHIFTS[s].label : 'frei';
 
-  let state, result, tab = 'plan', proposal = null, dirty = false, period = 'all';
+  let state, result, tab = 'plan', proposal = null, dirty = false, period = 'all', selPid = null;
   try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
   if (!state || !state.people) state = Planner.defaultState();
   state.marks = state.marks || {}; delete state.overrides;
@@ -501,7 +506,9 @@ if (typeof module !== 'undefined') module.exports = Planner;
     $('#start').value = state.start; $('#weeks').value = state.weeks;
     $('#tabs').innerHTML = [['plan', 'Plan'], ['people', 'Personen'], ['entries', 'Wünsche und Abwesenheiten'], ['stats', 'Auswertung']]
       .map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
+    const old = $('.gridwrap'), pos = old && [old.scrollLeft, old.scrollTop];   // Position im Raster behalten
     $('#view').innerHTML = { plan: viewPlan, people: viewPeople, entries: viewEntries, stats: viewStats }[tab]();
+    const grid = $('.gridwrap'); if (grid && pos) { grid.scrollLeft = pos[0]; grid.scrollTop = pos[1]; }
     $('#pop').style.display = 'none';
   }
 
@@ -533,8 +540,8 @@ if (typeof module !== 'undefined') module.exports = Planner;
       ${n('error') ? `<span class="pill error">${n('error')} Regelverstöße</span>` : '<span class="pill ok">Alle Pflichtschichten besetzt, keine Regelverstöße</span>'}
       <span class="pill warn">${n('warn')} Warnungen</span><span class="pill info">${n('info')} Hinweise</span>
       ${dirty ? '<span class="pill">Plan geändert: „Aktualisieren“ prüft, ob jemand einspringen muss</span>' : ''}</div>
-      <p class="hint">Ein Klick auf ein Feld ändert den Eintrag, zum Beispiel auf „Krank“. „Aktualisieren“ schlägt danach die kleinste nötige Änderung vor und lässt den übrigen Plan unverändert.</p>
-      <div class="gridwrap"><table class="grid"><thead><tr><th class="name"></th>`;
+      <p class="hint">Ein Klick auf ein Feld ändert den Eintrag, zum Beispiel auf „Krank“. Ein Klick auf einen Namen hebt die Zeile hervor. „Aktualisieren“ schlägt danach die kleinste nötige Änderung vor und lässt den übrigen Plan unverändert.</p>
+      <div class="gridwrap"><table class="grid${state.people.some(p => p.id === selPid) ? ' hasSel' : ''}"><thead><tr><th class="name"></th>`;
     let i = 0;
     while (i < days.length) {
       let j = i; while (j < days.length && days[j].slice(0, 7) === days[i].slice(0, 7)) j++;
@@ -545,7 +552,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
       const ps = state.people.filter(p => p.group === g); if (!ps.length) continue;
       h += `<tr class="group"><th class="name">${GROUPS[g]}</th><td colspan="${days.length}"></td></tr>`;
       for (const p of ps) {
-        h += `<tr><th class="name">${esc(p.name)}</th>`;
+        h += `<tr class="prow${p.id === selPid ? ' sel' : ''}"><th class="name" data-sel="${p.id}" title="Zeile hervorheben">${esc(p.name)}</th>`;
         for (const d of days) {
           const s = (plan[p.id] || {})[d], k = p.id + '|' + d, m = (state.marks[p.id] || {})[d];
           h += `<td class="cell${cls(d)}${cellBad[k] ? ' bad' : ''}${m ? ' off' : E[k] ? ' ' + E[k] : ''}${prop[k] ? ' prop' : ''}" data-pid="${p.id}" data-date="${d}">`
@@ -674,7 +681,8 @@ if (typeof module !== 'undefined') module.exports = Planner;
   });
   $('#view').addEventListener('click', e => {
     const t = e.target;
-    if (t.id === 'accept') { state.plan = proposal.plan; proposal = null; dirty = false; update(); }
+    if (t.dataset.sel) { selPid = selPid === t.dataset.sel ? null : t.dataset.sel; render(); }
+    else if (t.id === 'accept') { state.plan = proposal.plan; proposal = null; dirty = false; update(); }
     else if (t.id === 'reject') { proposal = null; render(); }
     else if (t.id === 'addPerson') { state.people.push({ id: 'p' + Date.now(), name: 'Neue Person', group: 'aushilfe', prefs: {} }); update(); }
     else if (t.dataset.del) { const p = state.people.splice(+t.dataset.del, 1)[0]; state.entries = state.entries.filter(x => x.pid !== p.id); delete state.plan[p.id]; delete state.marks[p.id]; edited(); }

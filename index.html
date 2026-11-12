@@ -79,6 +79,7 @@
   table.plain th { font-size: 12px; color: var(--muted); font-weight: 500; }
   .scroll { overflow-x: auto; }
   td.neg { color: var(--err); font-weight: 600; }
+  td.pos { color: var(--ok); font-weight: 600; }
   h3 { font-size: 14px; margin: 22px 0 6px; }
   table.plain td { font-variant-numeric: tabular-nums; }
   .form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 14px; }
@@ -466,7 +467,8 @@ const Planner = (() => {
     return { start: nextMonday(today), weeks: 13, seed: 0, people, entries: [], marks: {} };
   }
 
-  return { SHIFTS, ROT, WE, DOW, generate, evaluate, proposeFix, defaultState, addDays, dow, nextMonday, holiday, easter };
+  const statsFor = (state, plan, days) => stats(state, days, plan, indexEntries(state));
+  return { SHIFTS, ROT, WE, DOW, generate, evaluate, proposeFix, statsFor, defaultState, addDays, dow, nextMonday, holiday, easter };
 })();
 if (typeof module !== 'undefined') module.exports = Planner;
 </script>
@@ -485,7 +487,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
   const dayLabel = d => DOW[Planner.dow(d)] + ' ' + deDate(d);
   const sl = s => s ? SHIFTS[s].label : 'frei';
 
-  let state, result, tab = 'plan', proposal = null, dirty = false;
+  let state, result, tab = 'plan', proposal = null, dirty = false, period = 'all';
   try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
   if (!state || !state.people) state = Planner.defaultState();
   state.marks = state.marks || {}; delete state.overrides;
@@ -602,22 +604,38 @@ if (typeof module !== 'undefined') module.exports = Planner;
   }
 
   function viewStats() {
-    const keys = Object.keys(SHIFTS);
-    const months = (state.weeks * 7) / 30.44;
-    const ym = [...new Set(result.days.map(d => d.slice(0, 7)))];
-    const sign = n => (n > 0 ? '+' : '') + n;
-    let h = '<p class="hint">Soll: 8 Stunden je Werktag von Montag bis Freitag, ohne Feiertage in NRW und ohne Abwesenheit. Ist: 8 Stunden je Schicht, Pausen nicht mitgezählt. Angebrochene Monate am Anfang und Ende zählen nur mit den geplanten Tagen.</p>'
-      + '<div class="scroll"><table class="plain"><tr><th>Person</th><th>Soll (h)</th><th>Ist (h)</th><th>Saldo (h)</th>'
-      + ym.map(m => `<th>${MONTHS[+m.slice(5) - 1].slice(0, 3)}</th>`).join('') + '<th>Wochenendtage</th><th>pro Monat</th></tr>';
-    for (const r of result.stats.filter(r => r.group === 'tech'))
-      h += `<tr><td>${esc(r.name)}</td><td>${r.soll}</td><td>${r.ist}</td><td class="${r.ist < r.soll ? 'neg' : ''}">${sign(r.ist - r.soll)}</td>`
-        + ym.map(m => { const x = r.months[m]; return `<td class="${x.ist < x.soll ? 'neg' : ''}">${sign(x.ist - x.soll)}</td>`; }).join('')
-        + `<td>${r.weekend}</td><td>${(r.weekend / months).toFixed(1)}</td></tr>`;
-    h += '</table></div><h3>Schichten je Person</h3><div class="scroll"><table class="plain"><tr><th>Person</th><th>Schichten</th>'
-      + keys.map(k => `<th><span class="chip s-${k}">${SHIFTS[k].label}</span></th>`).join('') + '<th>Wochenendtage</th><th>Wünsche erfüllt</th></tr>';
-    for (const r of result.stats)
-      h += `<tr><td>${esc(r.name)}</td><td>${r.total}</td>${keys.map(k => `<td>${r.by[k] || ''}</td>`).join('')}<td>${r.weekend}</td><td>${r.wishes ? r.met + ' von ' + r.wishes : ''}</td></tr>`;
-    return h + '</table></div>';
+    const all = result.days, full = d => deDate(d) + d.slice(0, 4);
+    const ym = [...new Set(all.map(d => d.slice(0, 7)))];
+    if (period !== 'all' && !ym.includes(period)) period = 'all';
+    const days = period === 'all' ? all : all.filter(d => d.slice(0, 7) === period);
+    const stats = Planner.statsFor(state, state.plan, days);
+    const range = `${full(days[0])} bis ${full(days[days.length - 1])}`;
+    const diff = r => {
+      const n = r.ist - r.soll;
+      if (n === 0) return '<td class="pos">passt genau</td>';
+      return n < 0 ? `<td class="neg">${-n} Stunden zu wenig</td>` : `<td>${n} Stunden mehr als nötig</td>`;
+    };
+    let h = `<div class="form"><label>Zeitraum<select id="period"><option value="all">Ganzer Plan</option>`
+      + ym.map(m => `<option value="${m}"${m === period ? ' selected' : ''}>${MONTHS[+m.slice(5) - 1]} ${m.slice(0, 4)}</option>`).join('') + '</select></label></div>'
+      + `<p class="hint">Alle Zahlen auf dieser Seite gelten für die Tage vom <strong>${range}</strong>, soweit sie im Plan stehen.</p>`
+      + '<h3>Kommt jeder auf seine Stunden?</h3>'
+      + '<p class="hint">Jeder Techniker soll 8 Stunden pro Werktag arbeiten (Montag bis Freitag). Feiertage, Urlaub und Krankheit zählen nicht mit. Jede Schicht zählt 8 Stunden.</p>'
+      + '<div class="scroll"><table class="plain"><tr><th>Person</th><th>Soll arbeiten</th><th>Ist eingeplant</th><th>Unterschied</th></tr>';
+    for (const r of stats.filter(r => r.group === 'tech'))
+      h += `<tr><td>${esc(r.name)}</td><td>${r.soll} Stunden</td><td>${r.ist} Stunden</td>${diff(r)}</tr>`;
+    h += '</table></div><h3>Wer hat welche Schichten?</h3><p class="hint">Anzahl der Schichten je Person im gewählten Zeitraum.</p>'
+      + '<div class="scroll"><table class="plain"><tr><th>Person</th>' + ROT.map(k => `<th><span class="chip s-${k}">${SHIFTS[k].label}</span></th>`).join('')
+      + '<th>Schichten zusammen</th><th>davon am Wochenende</th></tr>';
+    for (const r of stats)
+      h += `<tr><td>${esc(r.name)}</td>${ROT.map(k => `<td>${r.by[k] || '–'}</td>`).join('')}<td>${r.total}</td><td>${r.weekend || '–'}</td></tr>`;
+    h += '</table></div>';
+    const wish = stats.filter(r => r.wishes);
+    if (wish.length) {
+      h += '<h3>Wurden die Wünsche erfüllt?</h3><div class="scroll"><table class="plain"><tr><th>Person</th><th>Erfüllte Wunschtage</th></tr>';
+      for (const r of wish) h += `<tr><td>${esc(r.name)}</td><td>${r.met} von ${r.wishes}</td></tr>`;
+      h += '</table></div>';
+    }
+    return h;
   }
 
   // Knopf, der erst beim zweiten Klick ausführt (Dialogfenster sind nicht überall erlaubt)
@@ -643,7 +661,9 @@ if (typeof module !== 'undefined') module.exports = Planner;
   twoStep($('#reset'), 'Wirklich alles ersetzen?', () => { state = Planner.defaultState(); newPlan(); update(); });
 
   $('#view').addEventListener('change', e => {
-    const t = e.target, f = t.dataset.f; if (!f) return;
+    const t = e.target, f = t.dataset.f;
+    if (t.id === 'period') { period = t.value; render(); return; }
+    if (!f) return;
     const p = state.people[+t.dataset.i];
     if (f === 'name') p.name = t.value;
     if (f === 'group') { p.group = t.value; if (p.group === 'fixed') { p.fixedShift = p.fixedShift || 'TAG'; p.fixedDays = p.fixedDays || [0, 1, 2, 3, 4]; } else p.prefs = p.prefs || {}; }

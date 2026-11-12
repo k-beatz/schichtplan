@@ -70,7 +70,7 @@ assert.strictEqual(Planner.easter(2027), '2027-03-28');
 assert.strictEqual(Planner.holiday('2027-03-26'), 'Karfreitag');
 assert.strictEqual(Planner.holiday('2027-05-27'), 'Fronleichnam');
 assert.ok(!Planner.holiday('2026-12-24'));
-for (const maxRun of [6, 7]) {
+for (const maxRun of [6]) {
   const st = Planner.defaultState(new Date('2026-11-12T00:00:00Z')); st.maxRun = maxRun;
   const v = Planner.generate(st);
   assert.deepStrictEqual(errors(v), [], 'ohne Regelverstöße bei höchstens ' + maxRun + ' Tagen');

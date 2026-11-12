@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schichtplan</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --line: #e2dfd6; --text: #1f1e1b; --muted: #6d6a62;
+    --accent: #2f5fd0; --err: #c0392b; --warn: #b7791f; --info: #4a6785; --weekend: #f0eee6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; padding: 14px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0 12px 0 0; }
+  label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+  input, select, button { font: inherit; color: inherit; }
+  input, select { padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.link { border: 0; background: none; color: var(--err); padding: 2px 4px; }
+  nav { display: flex; gap: 4px; padding: 10px 16px 0; flex-wrap: wrap; }
+  nav button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 0; background: transparent; }
+  nav button.on { background: var(--panel); font-weight: 600; }
+  main { padding: 0 16px 32px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 0 8px 8px 8px; padding: 14px; }
+  .summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+  .pill.error { color: var(--err); border-color: var(--err); } .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .pill.info { color: var(--info); } .pill.ok { color: #2d7a46; border-color: #2d7a46; }
+  .gridwrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 6px; }
+  table.grid { border-collapse: separate; border-spacing: 0; }
+  table.grid th, table.grid td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 2px; text-align: center; min-width: 46px; height: 30px; background: #fff; }
+  table.grid thead th { position: sticky; top: 0; z-index: 2; font-size: 11px; font-weight: 500; color: var(--muted); }
+  table.grid thead tr:nth-child(2) th { top: 22px; }
+  table.grid th.name { position: sticky; left: 0; z-index: 3; text-align: left; min-width: 150px; padding: 2px 8px; font-weight: 500; color: var(--text); white-space: nowrap; }
+  table.grid thead th.name { z-index: 4; }
+  table.grid .we { background: var(--weekend); }
+  table.grid .monthstart { border-left: 2px solid #b9b5a8; }
+  table.grid tr.group th { text-align: left; background: #ebe9e1; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); position: sticky; left: 0; }
+  td.cell { cursor: pointer; }
+  td.cell:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+  td.bad { box-shadow: inset 0 0 0 2px var(--err); }
+  td.off { background: repeating-linear-gradient(135deg, #f1f0ea, #f1f0ea 4px, #e6e4db 4px, #e6e4db 8px) !important; }
+  td.wish { background-image: radial-gradient(circle at 85% 20%, var(--warn) 2px, transparent 3px); }
+  .chip { display: inline-block; min-width: 38px; padding: 2px 4px; border-radius: 5px; font-size: 11px; font-weight: 600; border: 1.5px solid; }
+  .chip.manual { text-decoration: underline; }
+  .s-FRUEH { background: #fdf3cf; border-color: #e6b100; } .s-TAG { background: #dff3e6; border-color: #1f8f55; }
+  .s-SP1 { background: #e4e6fa; border-color: #4a4fb5; } .s-SP2 { background: #dff1f7; border-color: #1b93b8; }
+  .s-NS { background: #efe6f8; border-color: #7a3fa8; } .s-T_HG { background: #ecf6d9; border-color: #8bbd2f; }
+  .s-T_LILA { background: #fbe3f1; border-color: #c2187a; }
+  tr.status td { font-size: 12px; } .st-error { color: var(--err); font-weight: 700; } .st-ok { color: #2d7a46; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0; font-size: 12px; color: var(--muted); }
+  ul.warnings { list-style: none; margin: 10px 0 0; padding: 0; max-height: 260px; overflow: auto; }
+  ul.warnings li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .lv { display: inline-block; width: 68px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .lv.error { color: var(--err); } .lv.warn { color: var(--warn); } .lv.info { color: var(--info); }
+  table.plain { border-collapse: collapse; width: 100%; }
+  table.plain th, table.plain td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: middle; }
+  table.plain th { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .scroll { overflow-x: auto; }
+  .form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 14px; }
+  .days label { flex-direction: row; display: inline-flex; gap: 2px; margin-right: 6px; align-items: center; }
+  #pop { position: absolute; z-index: 10; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.15); display: none; width: 220px; }
+  #pop .t { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  #pop .b { display: flex; flex-wrap: wrap; gap: 5px; }
+  #pop button { padding: 3px 6px; font-size: 12px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Schichtplan</h1>
+  <label>Beginn (Montag)<input type="date" id="start"></label>
+  <label>Wochen<input type="number" id="weeks" min="1" max="26" style="width:70px"></label>
+  <button id="clearManual">Handänderungen verwerfen</button>
+  <button id="reset">Beispieldaten laden</button>
+</header>
+<nav id="tabs"></nav>
+<main><div class="panel" id="view"></div></main>
+<div id="pop"></div>
+
+<script id="planner">
+/* Planlogik. Läuft im Browser und (für Tests) in Node. */
+const Planner = (() => {
+  const SHIFTS = {
+    FRUEH:  { label: 'Früh', time: '05:30–14:00', idx: 0 },
+    TAG:    { label: 'Tag',  time: '08:00–16:30', idx: 1 },
+    SP1:    { label: 'SP1',  time: '10:45–19:15', idx: 2 },
+    SP2:    { label: 'SP2',  time: '13:30–22:00', idx: 3 },
+    NS:     { label: 'NS',   time: '22:00–05:30', idx: 4 },
+    T_HG:   { label: 'T',    time: '09:00–15:00', idx: 1, fixedOnly: true },
+    T_LILA: { label: 'T',    time: '08:00–12:00', idx: 1, fixedOnly: true },
+  };
+  const ROT = ['FRUEH', 'TAG', 'SP1', 'SP2', 'NS'];   // Reihenfolge = erlaubte Wechselrichtung
+  const WE = ['FRUEH', 'SP2', 'NS'];                  // Wochenendschichten
+  const DOW = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+  const toDate = s => new Date(s + 'T00:00:00Z');
+  const fmt = d => d.toISOString().slice(0, 10);
+  const addDays = (s, n) => { const d = toDate(s); d.setUTCDate(d.getUTCDate() + n); return fmt(d); };
+  const dow = s => (toDate(s).getUTCDay() + 6) % 7;   // 0 = Montag
+  const nextMonday = from => { let s = fmt(from); do { s = addDays(s, 1); } while (dow(s) !== 0); return s; };
+  const pref = (p, s) => (p.prefs && p.prefs[s]) || 'ok';
+
+  function indexEntries(state) {
+    const by = {};
+    for (const e of state.entries || []) (by[e.pid] = by[e.pid] || []).push(e);
+    const on = (pid, date) => (by[pid] || []).filter(e => e.from <= date && date <= e.to);
+    return {
+      hard: (pid, date) => on(pid, date).some(e => e.type === 'abwesend'),
+      soft: (pid, date) => on(pid, date).some(e => e.type === 'frei'),
+      wishes: (pid, date) => on(pid, date).filter(e => e.type === 'schicht' || e.type === 'nicht'),
+    };
+  }
+  const wishCost = (E, pid, date, s) => {
+    let c = 0;
+    for (const w of E.wishes(pid, date)) {
+      if (w.type === 'schicht' && w.shift !== s) c += 25;
+      if (w.type === 'nicht' && w.shift === s) c += 25;
+    }
+    return c;
+  };
+
+  // Bewertung der Besetzung eines Werktags. c = Anzahl Techniker je Schicht (Reihenfolge ROT).
+  function dayCost(c, fixedTag) {
+    let v = 0; const tag = c[1] + fixedTag;
+    if (c[0] === 0) v += 1000; else if (c[0] >= 2) v -= 50;
+    if (c[0] > 2) v += 5 * (c[0] - 2);
+    if (c[3] === 0) v += 1000; else if (c[3] >= 2) v -= 10;
+    if (c[4] === 0) v += 1000; else if (c[4] > 1) v += 300 * (c[4] - 1);
+    if (tag === 0) v += 300; else if (tag >= 2) v -= 30;
+    if (tag > 2) v += 5 * (tag - 2);
+    if (c[2] >= 1) v -= 20;
+    if (c[2] > 1) v += 5 * (c[2] - 1);
+    return v;
+  }
+
+  function generate(state) {
+    const people = state.people;
+    const days = []; for (let i = 0; i < state.weeks * 7; i++) days.push(addDays(state.start, i));
+    const E = indexEntries(state);
+    const plan = {}; people.forEach(p => plan[p.id] = {});
+    const notes = [];
+    const techs = people.filter(p => p.group === 'tech');
+    const aush = people.filter(p => p.group === 'aushilfe');
+    const fixed = people.filter(p => p.group === 'fixed');
+    const isOff = (p, d) => E.hard(p.id, d) || E.soft(p.id, d);
+    const countDay = d => { const c = {}; for (const p of people) { const s = plan[p.id][d]; if (s) c[s] = (c[s] || 0) + 1; } return c; };
+
+    // 1. Feste Muster
+    for (const p of fixed) for (const d of days)
+      if ((p.fixedDays || []).includes(dow(d)) && !isOff(p, d)) plan[p.id][d] = p.fixedShift;
+
+    // 2. Wochenenddienst: zwei Techniker je Wochenende, eine Aushilfe je Tag
+    const weDays = {}, lastDuty = {}, weShift = {}, ahCount = {}; const comp = new Set();
+    techs.forEach(t => { weDays[t.id] = 0; weShift[t.id] = { FRUEH: 0, SP2: 0, NS: 0 }; });
+    aush.forEach(a => ahCount[a.id] = 0);
+    for (let w = 0; w < state.weeks; w++) {
+      const sat = days[w * 7 + 5], sun = days[w * 7 + 6];
+      const duty = techs.map((t, i) => {
+        if (E.hard(t.id, sat) || E.hard(t.id, sun)) return null;
+        let c = weDays[t.id] * 10;
+        if (lastDuty[t.id] === w - 1) c += 1000;
+        if (E.soft(t.id, sat) || E.soft(t.id, sun)) c += 15;
+        return { t, c, last: lastDuty[t.id] ?? -1, i };
+      }).filter(Boolean).sort((a, b) => a.c - b.c || a.last - b.last || a.i - b.i).slice(0, 2).map(x => x.t);
+
+      const cost = (t, s) => {
+        const pr = pref(t, s);
+        return (pr === 'nie' ? 1e6 : pr === 'ungern' ? 40 : 0) + 5 * weShift[t.id][s]
+          + wishCost(E, t.id, sat, s) + wishCost(E, t.id, sun, s);
+      };
+      let best = null;
+      if (duty.length === 2) {
+        for (const a of WE) for (const b of WE) if (a !== b) {
+          const c = cost(duty[0], a) + cost(duty[1], b);
+          if (!best || c < best.c) best = { c, pick: [a, b] };
+        }
+      } else if (duty.length === 1) {
+        for (const a of WE) { const c = cost(duty[0], a); if (!best || c < best.c) best = { c, pick: [a] }; }
+      }
+      const taken = new Set();
+      duty.forEach((t, k) => {
+        const s = best.pick[k]; taken.add(s);
+        plan[t.id][sat] = s; plan[t.id][sun] = s;
+        weShift[t.id][s]++; weDays[t.id] += 2; lastDuty[t.id] = w;
+        comp.add(t.id + '|' + days[w * 7 + 4]);                       // Freitag davor frei
+        if (days[w * 7 + 7]) comp.add(t.id + '|' + days[w * 7 + 7]);  // Montag danach frei
+      });
+      const satPick = {};
+      for (const d of [sat, sun]) {
+        const used = new Set();
+        for (const s of WE) {
+          if (taken.has(s)) continue;
+          const pick = aush.filter(a => !isOff(a, d) && !used.has(a.id) && pref(a, s) !== 'nie')
+            .map((a, i) => ({ a, i, c: ahCount[a.id] * 10 - (satPick[s] === a.id ? 15 : 0) + (pref(a, s) === 'ungern' ? 40 : 0) }))
+            .sort((x, y) => x.c - y.c || x.i - y.i)[0];
+          if (pick) { plan[pick.a.id][d] = s; ahCount[pick.a.id]++; used.add(pick.a.id); if (d === sat) satPick[s] = pick.a.id; }
+        }
+      }
+    }
+
+    // 3. Werktage: jeder Techniker bekommt je Woche eine Schicht; alle Kombinationen werden bewertet
+    const hist = {}; techs.forEach(t => { hist[t.id] = {}; ROT.forEach(s => hist[t.id][s] = 0); });
+    for (let w = 0; w < state.weeks; w++) {
+      const wd = days.slice(w * 7, w * 7 + 5);
+      const act = techs.map(t => ({ t, pres: wd.map(d => !isOff(t, d) && !comp.has(t.id + '|' + d)) }))
+        .filter(x => x.pres.some(Boolean));
+      if (!act.length) continue;
+      const fixedTag = wd.map(d => fixed.filter(f => plan[f.id][d] === 'TAG').length);
+      for (const x of act) {
+        const weS = plan[x.t.id][days[w * 7 + 5]];
+        x.cost = ROT.map(s => {
+          const pr = pref(x.t, s);
+          let c = (pr === 'nie' ? 1e5 : pr === 'ungern' ? 40 : 0) + 6 * hist[x.t.id][s];
+          wd.forEach((d, k) => { if (x.pres[k]) c += wishCost(E, x.t.id, d, s); });
+          if (weS === s) c -= 5;
+          return c;
+        });
+      }
+      const cnt = wd.map(() => [0, 0, 0, 0, 0]);
+      const cur = new Array(act.length); let best = Infinity, bestA = null;
+      const rec = (i, acc) => {
+        if (i === act.length) {
+          let v = acc; for (let k = 0; k < 5; k++) v += dayCost(cnt[k], fixedTag[k]);
+          if (v < best) { best = v; bestA = cur.slice(); }
+          return;
+        }
+        const x = act[i];
+        for (let si = 0; si < 5; si++) {
+          cur[i] = si;
+          for (let k = 0; k < 5; k++) if (x.pres[k]) cnt[k][si]++;
+          rec(i + 1, acc + x.cost[si]);
+          for (let k = 0; k < 5; k++) if (x.pres[k]) cnt[k][si]--;
+        }
+      };
+      rec(0, 0);
+      act.forEach((x, i) => {
+        const s = ROT[bestA[i]]; hist[x.t.id][s]++;
+        wd.forEach((d, k) => { if (x.pres[k]) plan[x.t.id][d] = s; });
+      });
+    }
+
+    // 4. Lücken an einzelnen Werktagen schließen
+    for (let i = 0; i < days.length; i++) {
+      const d = days[i]; if (dow(d) > 4) continue;
+      for (const S of ['NS', 'FRUEH', 'SP2', 'TAG']) {
+        const cnt = countDay(d);
+        if (cnt[S]) continue;
+        const cand = techs.map((t, ti) => {
+          const c = plan[t.id][d];
+          if (!c || c === S || pref(t, S) === 'nie') return null;
+          let lost;
+          if (c === 'SP1') lost = 20;
+          else if (c === 'TAG') { if (cnt.TAG >= 2) lost = 30; else if (S !== 'TAG') lost = 300; else return null; }
+          else if (cnt[c] >= 2) lost = c === 'FRUEH' ? 50 : 10;
+          else return null;
+          const prev = i > 0 && plan[t.id][days[i - 1]], next = plan[t.id][days[i + 1]];
+          if (prev && SHIFTS[prev].idx > SHIFTS[S].idx) lost += 100;
+          if (next && SHIFTS[next].idx < SHIFTS[S].idx) lost += 100;
+          if (pref(t, S) === 'ungern') lost += 40;
+          return { t, lost, ti };
+        }).filter(Boolean).sort((a, b) => a.lost - b.lost || a.ti - b.ti)[0];
+        if (cand) {
+          plan[cand.t.id][d] = S;
+          notes.push({ level: 'info', date: d, pid: cand.t.id, text: `wechselt für diesen Tag auf ${SHIFTS[S].label}, weil die Schicht sonst unbesetzt wäre` });
+        } else if (S !== 'TAG') {
+          const a = aush.filter(a => !isOff(a, d) && !plan[a.id][d] && pref(a, S) !== 'nie')
+            .sort((x, y) => ahCount[x.id] - ahCount[y.id])[0];
+          if (a) {
+            plan[a.id][d] = S; ahCount[a.id]++;
+            notes.push({ level: 'info', date: d, pid: a.id, text: `springt als Aushilfe für ${SHIFTS[S].label} ein` });
+          }
+        }
+      }
+    }
+
+    // 5. Handänderungen
+    const manual = {};
+    for (const pid in state.overrides || {}) for (const d in state.overrides[pid]) {
+      if (!plan[pid] || !days.includes(d)) continue;
+      const v = state.overrides[pid][d];
+      if (v === 'FREI') delete plan[pid][d]; else plan[pid][d] = v;
+      manual[pid + '|' + d] = true;
+    }
+
+    const warnings = validate(state, days, plan).concat(notes.filter(n => !manual[n.pid + '|' + n.date]));
+    return { days, plan, warnings, manual, stats: stats(state, days, plan, E) };
+  }
+
+  function validate(state, days, plan) {
+    const E = indexEntries(state); const out = [];
+    const name = Object.fromEntries(state.people.map(p => [p.id, p.name]));
+    const add = (level, date, pid, text) => out.push({ level, date, pid, text });
+    for (const d of days) {
+      const c = {}; let techWe = 0;
+      for (const p of state.people) { const s = plan[p.id][d]; if (s) { c[s] = (c[s] || 0) + 1; if (p.group === 'tech') techWe++; } }
+      const we = dow(d) > 4;
+      for (const s of WE) if (!c[s]) add('error', d, null, `${SHIFTS[s].label} ist nicht besetzt`);
+      if (!we && !c.TAG) add('warn', d, null, 'Tagschicht ist nicht besetzt');
+      if (c.NS > 1) add('warn', d, null, 'Nachtschicht ist doppelt besetzt');
+      if (we && techWe !== 2) add('warn', d, null, `${techWe} statt 2 Techniker im Wochenenddienst`);
+    }
+    for (const p of state.people) {
+      let run = 0;
+      days.forEach((d, i) => {
+        const s = plan[p.id][d];
+        if (!s) { run = 0; if (E.wishes(p.id, d).some(w => w.type === 'schicht')) add('info', d, p.id, 'Schichtwunsch nicht erfüllt (frei)'); return; }
+        run++;
+        if (run === 7) add('error', d, p.id, 'mehr als 6 Tage am Stück');
+        if (E.hard(p.id, d)) add('error', d, p.id, 'ist abwesend, aber eingeteilt');
+        else if (E.soft(p.id, d)) add('info', d, p.id, 'Wunsch „frei“ nicht erfüllt');
+        if (pref(p, s) === 'nie') add('error', d, p.id, `darf ${SHIFTS[s].label} nicht übernehmen`);
+        for (const w of E.wishes(p.id, d)) {
+          if (w.type === 'schicht' && w.shift !== s) add('info', d, p.id, `Wunsch ${SHIFTS[w.shift].label} nicht erfüllt`);
+          if (w.type === 'nicht' && w.shift === s) add('info', d, p.id, `Wunsch „nicht ${SHIFTS[s].label}“ nicht erfüllt`);
+        }
+        const prev = i > 0 && plan[p.id][days[i - 1]];
+        if (prev && SHIFTS[prev].idx > SHIFTS[s].idx)
+          add('warn', d, p.id, `Wechsel rückwärts (${SHIFTS[prev].label} → ${SHIFTS[s].label})`);
+      });
+    }
+    out.forEach(o => { if (o.pid) o.text = `${name[o.pid]}: ${o.text}`; });
+    return out;
+  }
+
+  function stats(state, days, plan, E) {
+    return state.people.map(p => {
+      const r = { pid: p.id, name: p.name, group: p.group, total: 0, weekend: 0, by: {}, wishes: 0, met: 0 };
+      for (const d of days) {
+        const s = plan[p.id][d];
+        if (s) { r.total++; r.by[s] = (r.by[s] || 0) + 1; if (dow(d) > 4) r.weekend++; }
+        if (E.soft(p.id, d)) { r.wishes++; if (!s) r.met++; }
+        for (const w of E.wishes(p.id, d)) {
+          r.wishes++;
+          if (w.type === 'schicht' ? s === w.shift : s !== w.shift) r.met++;
+        }
+      }
+      return r;
+    });
+  }
+
+  function defaultState(today = new Date()) {
+    const people = [];
+    const tech = (n, prefs) => people.push({ id: 't' + n, name: 'Techniker ' + n, group: 'tech', prefs: prefs || {} });
+    tech(1, { TAG: 'nie', SP1: 'nie', SP2: 'nie' });   // nur Früh und Nacht
+    tech(2, { NS: 'nie' });                            // keine Nachtschicht
+    tech(3); tech(4); tech(5); tech(6);
+    people.push({ id: 'f1', name: 'Tagschicht (fest)', group: 'fixed', fixedShift: 'TAG', fixedDays: [0, 1, 2, 3, 4] });
+    people.push({ id: 'f2', name: 'T 09:00–15:00', group: 'fixed', fixedShift: 'T_HG', fixedDays: [0, 1, 2, 3, 4] });
+    people.push({ id: 'f3', name: 'T 08:00–12:00', group: 'fixed', fixedShift: 'T_LILA', fixedDays: [3] });
+    for (let i = 1; i <= 6; i++) people.push({ id: 'a' + i, name: 'Aushilfe ' + i, group: 'aushilfe', prefs: {} });
+    return { start: nextMonday(today), weeks: 13, people, entries: [], overrides: {} };
+  }
+
+  return { SHIFTS, ROT, WE, DOW, generate, defaultState, addDays, dow, nextMonday };
+})();
+if (typeof module !== 'undefined') module.exports = Planner;
+</script>
+
+<script>
+(() => {
+  const { SHIFTS, ROT, DOW } = Planner;
+  const KEY = 'schichtplan.v1';
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const GROUPS = { tech: 'Feste Techniker', fixed: 'Mitlaufende', aushilfe: 'Aushilfen' };
+  const TYPES = { abwesend: 'Abwesend (Urlaub, krank)', frei: 'Wunsch: frei', schicht: 'Wunsch: diese Schicht', nicht: 'Wunsch: nicht diese Schicht' };
+  const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+  const deDate = d => d.slice(8) + '.' + d.slice(5, 7) + '.';
+
+  let state, result, tab = 'plan';
+  try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (!state || !state.people) state = Planner.defaultState();
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+  const update = () => { save(); result = Planner.generate(state); render(); };
+
+  function render() {
+    $('#start').value = state.start; $('#weeks').value = state.weeks;
+    $('#tabs').innerHTML = [['plan', 'Plan'], ['people', 'Personen'], ['entries', 'Wünsche und Abwesenheiten'], ['stats', 'Auswertung']]
+      .map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('');
+    $('#view').innerHTML = { plan: viewPlan, people: viewPeople, entries: viewEntries, stats: viewStats }[tab]();
+    $('#pop').style.display = 'none';
+  }
+
+  function viewPlan() {
+    const { days, plan, warnings, manual } = result;
+    const n = l => warnings.filter(w => w.level === l).length;
+    const dayErr = {}; const cellBad = {};
+    for (const w of warnings) if (w.level === 'error') { if (w.pid) cellBad[w.pid + '|' + w.date] = 1; else dayErr[w.date] = 1; }
+    const E = {}; for (const e of state.entries) for (const d of days) if (e.from <= d && d <= e.to) E[e.pid + '|' + d] = e.type === 'abwesend' ? 'off' : (E[e.pid + '|' + d] || 'wish');
+    const cls = d => (Planner.dow(d) > 4 ? ' we' : '') + (d.slice(8) === '01' ? ' monthstart' : '');
+    let h = `<div class="summary">
+      ${n('error') ? `<span class="pill error">${n('error')} Regelverstöße</span>` : '<span class="pill ok">Alle Pflichtschichten besetzt, keine Regelverstöße</span>'}
+      <span class="pill warn">${n('warn')} Warnungen</span><span class="pill info">${n('info')} Hinweise</span></div>
+      <p class="hint">Ein Klick auf ein Feld ändert den Eintrag von Hand. Unterstrichene Einträge sind Handänderungen.</p>
+      <div class="gridwrap"><table class="grid"><thead><tr><th class="name"></th>`;
+    let i = 0;
+    while (i < days.length) {
+      let j = i; while (j < days.length && days[j].slice(0, 7) === days[i].slice(0, 7)) j++;
+      h += `<th colspan="${j - i}" class="monthstart" style="text-align:left;padding-left:6px">${MONTHS[+days[i].slice(5, 7) - 1]} ${days[i].slice(0, 4)}</th>`; i = j;
+    }
+    h += '</tr><tr><th class="name">Person</th>' + days.map(d => `<th class="${cls(d)}">${DOW[Planner.dow(d)]} ${+d.slice(8)}</th>`).join('') + '</tr></thead><tbody>';
+    for (const g of Object.keys(GROUPS)) {
+      const ps = state.people.filter(p => p.group === g); if (!ps.length) continue;
+      h += `<tr class="group"><th class="name">${GROUPS[g]}</th><td colspan="${days.length}" style="background:#ebe9e1"></td></tr>`;
+      for (const p of ps) {
+        h += `<tr><th class="name">${esc(p.name)}</th>`;
+        for (const d of days) {
+          const s = plan[p.id][d], k = p.id + '|' + d;
+          h += `<td class="cell${cls(d)}${cellBad[k] ? ' bad' : ''}${E[k] ? ' ' + E[k] : ''}" data-pid="${p.id}" data-date="${d}">`
+            + (s ? `<span class="chip s-${s}${manual[k] ? ' manual' : ''}" title="${SHIFTS[s].time}">${SHIFTS[s].label}</span>` : (manual[k] ? '–' : '')) + '</td>';
+        }
+        h += '</tr>';
+      }
+    }
+    h += '<tr class="status"><th class="name">Pflichtschichten</th>' + days.map(d => `<td class="${cls(d)} ${dayErr[d] ? 'st-error' : 'st-ok'}">${dayErr[d] ? '!' : '✓'}</td>`).join('') + '</tr>';
+    h += '</tbody></table></div><div class="legend">'
+      + Object.entries(SHIFTS).map(([k, s]) => `<span><span class="chip s-${k}">${s.label}</span> ${s.time}</span>`).join('')
+      + '<span>Schraffiert: abwesend</span><span>Punkt: Wunsch eingetragen</span></div>';
+    const order = { error: 0, warn: 1, info: 2 }, lab = { error: 'Verstoß', warn: 'Warnung', info: 'Hinweis' };
+    const ws = warnings.slice().sort((a, b) => order[a.level] - order[b.level] || a.date.localeCompare(b.date));
+    h += '<ul class="warnings">' + ws.map(w => `<li><span class="lv ${w.level}">${lab[w.level]}</span>${DOW[Planner.dow(w.date)]} ${deDate(w.date)} · ${esc(w.text)}</li>`).join('') + '</ul>';
+    return h;
+  }
+
+  const shiftOpts = (sel, keys) => keys.map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${SHIFTS[k].label} ${SHIFTS[k].time}</option>`).join('');
+
+  function viewPeople() {
+    let h = `<p class="hint">Die Reihenfolge der Techniker bestimmt, wer zuerst Wochenenddienst hat. „Nie“ ist eine feste Vorgabe, „ungern“ ein Wunsch.</p>
+      <div class="scroll"><table class="plain"><tr><th>Name</th><th>Gruppe</th><th>Schichten</th><th></th></tr>`;
+    state.people.forEach((p, i) => {
+      let mid;
+      if (p.group === 'fixed') {
+        mid = `<select data-f="fixedShift" data-i="${i}">${shiftOpts(p.fixedShift, Object.keys(SHIFTS))}</select> <span class="days">`
+          + [0, 1, 2, 3, 4].map(d => `<label><input type="checkbox" data-f="day" data-d="${d}" data-i="${i}"${(p.fixedDays || []).includes(d) ? ' checked' : ''}>${DOW[d]}</label>`).join('') + '</span>';
+      } else {
+        mid = ROT.map(s => `<label style="display:inline-flex;margin-right:8px">${SHIFTS[s].label}<select data-f="pref" data-s="${s}" data-i="${i}">`
+          + ['ok', 'ungern', 'nie'].map(v => `<option${((p.prefs || {})[s] || 'ok') === v ? ' selected' : ''}>${v}</option>`).join('') + '</select></label>').join('');
+      }
+      h += `<tr><td><input data-f="name" data-i="${i}" value="${esc(p.name)}"></td>
+        <td><select data-f="group" data-i="${i}">${Object.entries(GROUPS).map(([k, l]) => `<option value="${k}"${k === p.group ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
+        <td>${mid}</td><td><button class="link" data-del="${i}">Entfernen</button></td></tr>`;
+    });
+    return h + '</table></div><p><button id="addPerson">Person hinzufügen</button></p>';
+  }
+
+  function viewEntries() {
+    const name = Object.fromEntries(state.people.map(p => [p.id, p.name]));
+    let h = `<div class="form">
+      <label>Person<select id="ePid">${state.people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
+      <label>Art<select id="eType">${Object.entries(TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+      <label>Schicht<select id="eShift">${shiftOpts('', ROT)}</select></label>
+      <label>Von<input type="date" id="eFrom" value="${state.start}"></label>
+      <label>Bis<input type="date" id="eTo" value="${state.start}"></label>
+      <button class="primary" id="addEntry">Eintragen</button></div>`;
+    if (!state.entries.length) return h + '<p class="hint">Noch keine Wünsche oder Abwesenheiten eingetragen.</p>';
+    h += '<div class="scroll"><table class="plain"><tr><th>Person</th><th>Art</th><th>Von</th><th>Bis</th><th></th></tr>';
+    state.entries.forEach((e, i) => {
+      h += `<tr><td>${esc(name[e.pid] || '?')}</td><td>${TYPES[e.type]}${e.type === 'schicht' || e.type === 'nicht' ? ' (' + SHIFTS[e.shift].label + ')' : ''}</td>
+        <td>${deDate(e.from)}${e.from.slice(0, 4)}</td><td>${deDate(e.to)}${e.to.slice(0, 4)}</td><td><button class="link" data-edel="${i}">Entfernen</button></td></tr>`;
+    });
+    return h + '</table></div>';
+  }
+
+  function viewStats() {
+    const keys = Object.keys(SHIFTS);
+    const months = (state.weeks * 7) / 30.44;
+    let h = '<div class="scroll"><table class="plain"><tr><th>Person</th><th>Schichten</th>' + keys.map(k => `<th><span class="chip s-${k}">${SHIFTS[k].label}</span></th>`).join('')
+      + '<th>Wochenendtage</th><th>pro Monat</th><th>Wünsche erfüllt</th></tr>';
+    for (const r of result.stats)
+      h += `<tr><td>${esc(r.name)}</td><td>${r.total}</td>${keys.map(k => `<td>${r.by[k] || ''}</td>`).join('')}<td>${r.weekend}</td><td>${(r.weekend / months).toFixed(1)}</td><td>${r.wishes ? r.met + ' von ' + r.wishes : ''}</td></tr>`;
+    return h + '</table></div>';
+  }
+
+  // Ereignisse
+  $('#tabs').onclick = e => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; render(); } };
+  $('#start').onchange = e => {
+    if (!e.target.value) return;
+    let s = e.target.value; while (Planner.dow(s) !== 0) s = Planner.addDays(s, -1);
+    state.start = s; update();
+  };
+  $('#weeks').onchange = e => { state.weeks = Math.max(1, Math.min(26, +e.target.value || 13)); update(); };
+  $('#clearManual').onclick = () => { state.overrides = {}; update(); };
+  $('#reset').onclick = () => { if (confirm('Alle Eingaben durch die Beispieldaten ersetzen?')) { state = Planner.defaultState(); update(); } };
+
+  $('#view').addEventListener('change', e => {
+    const t = e.target, f = t.dataset.f; if (!f) return;
+    const p = state.people[+t.dataset.i];
+    if (f === 'name') p.name = t.value;
+    if (f === 'group') { p.group = t.value; if (p.group === 'fixed') { p.fixedShift = p.fixedShift || 'TAG'; p.fixedDays = p.fixedDays || [0, 1, 2, 3, 4]; } else p.prefs = p.prefs || {}; }
+    if (f === 'fixedShift') p.fixedShift = t.value;
+    if (f === 'day') { const d = +t.dataset.d; p.fixedDays = (p.fixedDays || []).filter(x => x !== d); if (t.checked) p.fixedDays.push(d); }
+    if (f === 'pref') { p.prefs = p.prefs || {}; if (t.value === 'ok') delete p.prefs[t.dataset.s]; else p.prefs[t.dataset.s] = t.value; }
+    update();
+  });
+  $('#view').addEventListener('click', e => {
+    const t = e.target;
+    if (t.id === 'addPerson') { state.people.push({ id: 'p' + Date.now(), name: 'Neue Person', group: 'aushilfe', prefs: {} }); update(); }
+    else if (t.dataset.del) { const p = state.people.splice(+t.dataset.del, 1)[0]; state.entries = state.entries.filter(x => x.pid !== p.id); delete state.overrides[p.id]; update(); }
+    else if (t.dataset.edel) { state.entries.splice(+t.dataset.edel, 1); update(); }
+    else if (t.id === 'addEntry') {
+      let from = $('#eFrom').value, to = $('#eTo').value; if (!from) return; if (!to || to < from) to = from;
+      state.entries.push({ pid: $('#ePid').value, type: $('#eType').value, shift: $('#eShift').value, from, to }); update();
+    } else {
+      const cell = t.closest('td.cell'); if (cell) openPop(cell);
+    }
+  });
+
+  function openPop(cell) {
+    const { pid, date } = cell.dataset, pop = $('#pop');
+    const p = state.people.find(x => x.id === pid);
+    pop.innerHTML = `<div class="t">${esc(p.name)} · ${DOW[Planner.dow(date)]} ${deDate(date)}</div><div class="b">`
+      + Object.keys(SHIFTS).map(k => `<button data-v="${k}"><span class="chip s-${k}">${SHIFTS[k].label}</span></button>`).join('')
+      + '<button data-v="FREI">Frei</button><button data-v="AUTO">Automatisch</button></div>';
+    const r = cell.getBoundingClientRect();
+    pop.style.display = 'block';
+    pop.style.left = Math.max(8, Math.min(window.innerWidth - 230, r.left + window.scrollX)) + 'px';
+    pop.style.top = (r.bottom + window.scrollY + 4) + 'px';
+    pop.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      const o = state.overrides[pid] = state.overrides[pid] || {};
+      if (b.dataset.v === 'AUTO') delete o[date]; else o[date] = b.dataset.v;
+      update();
+    };
+  }
+  document.addEventListener('click', e => { if (!e.target.closest('#pop') && !e.target.closest('td.cell')) $('#pop').style.display = 'none'; });
+
+  update();
+})();
+</script>
+</body>
+</html>

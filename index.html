@@ -203,8 +203,9 @@ const Planner = (() => {
         const s = best.pick[k]; taken.add(s);
         plan[t.id][sat] = s; plan[t.id][sun] = s;
         weShift[t.id][s]++; weDays[t.id] += 2; lastDuty[t.id] = w;
-        comp.add(t.id + '|' + days[w * 7 + 4]);                       // Freitag davor frei
-        if (days[w * 7 + 7]) comp.add(t.id + '|' + days[w * 7 + 7]);  // Montag danach frei
+        comp.add(t.id + '|' + days[w * 7 + 3]);                         // Donnerstag und Freitag davor frei
+        comp.add(t.id + '|' + days[w * 7 + 4]);
+        if (days[w * 7 + 11]) comp.add(t.id + '|' + days[w * 7 + 11]);  // Freitag danach frei: höchstens 6 Tage am Stück
       });
       const satPick = {};
       for (const d of [sat, sun]) {
@@ -234,6 +235,9 @@ const Planner = (() => {
           let c = (pr === 'nie' ? 1e5 : pr === 'ungern' ? 40 : 0) + 6 * hist[x.t.id][s] + rnd() * 4;
           wd.forEach((d, k) => { if (x.pres[k]) c += wishCost(E, x.t.id, d, s); });
           if (weS === s) c -= 5;
+          // Nach Wochenenddienst geht es ohne freien Tag weiter: kein Wechsel rückwärts am Montag
+          const sun = w > 0 && plan[x.t.id][days[w * 7 - 1]];
+          if (sun && x.pres[0] && SHIFTS[sun].idx > SHIFTS[s].idx) c += 400;
           return c;
         });
       }
@@ -284,8 +288,13 @@ const Planner = (() => {
           plan[cand.t.id][d] = S;
           notes.push({ level: 'info', date: d, pid: cand.t.id, text: `wechselt für diesen Tag auf ${SHIFTS[S].label}, weil die Schicht sonst unbesetzt wäre` });
         } else if (S !== 'TAG') {
+          const back = a => {   // Rückwärtswechsel zu den Nachbartagen vermeiden
+            const prev = i > 0 && plan[a.id][days[i - 1]], next = plan[a.id][days[i + 1]];
+            return (prev && SHIFTS[prev].idx > SHIFTS[S].idx ? 100 : 0) + (next && SHIFTS[next].idx < SHIFTS[S].idx ? 100 : 0);
+          };
           const a = aush.filter(a => !isOff(a, d) && !plan[a.id][d] && pref(a, S) !== 'nie')
-            .sort((x, y) => ahCount[x.id] - ahCount[y.id])[0];
+            .map((a, k) => ({ a, k, c: ahCount[a.id] * 10 + back(a) + (pref(a, S) === 'ungern' ? 40 : 0) }))
+            .sort((x, y) => x.c - y.c || x.k - y.k).map(x => x.a)[0];
           if (a) {
             plan[a.id][d] = S; ahCount[a.id]++;
             notes.push({ level: 'info', date: d, pid: a.id, text: `springt als Aushilfe für ${SHIFTS[S].label} ein` });

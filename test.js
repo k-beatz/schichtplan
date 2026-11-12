@@ -53,3 +53,13 @@ assert.strictEqual(r.plan.t2[day], 'NS');
 assert.ok(errors(r).some(w => w.pid === 't2' && w.date === day), 'Verstoß gegen „nie Nacht“ wird gemeldet');
 
 console.log('Alle Prüfungen bestanden.');
+
+// 5. Andere Varianten halten dieselben Regeln ein
+for (const seed of [1, 7, 12345, 987654321]) {
+  const st = Planner.defaultState(new Date('2026-11-12T00:00:00Z')); st.seed = seed;
+  const v = Planner.generate(st);
+  assert.deepStrictEqual(errors(v), [], 'Variante ' + seed + ' ohne Regelverstöße');
+  for (const s of v.stats.filter(s => s.group === 'tech')) assert.ok(s.weekend >= 8 && s.weekend <= 10 && maxRun(v, s.pid) <= 6);
+  assert.ok(!v.stats.find(s => s.pid === 't2').by.NS);
+}
+console.log('Varianten geprüft.');

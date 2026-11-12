@@ -46,11 +46,36 @@ r = Planner.generate(state);
 assert.deepStrictEqual(errors(r), [], 'Krankheitstag ohne Regelverstöße');
 assert.strictEqual(state.people.filter(p => r.plan[p.id][day] === 'NS').length, 1);
 
-// 4. Handänderung wird übernommen und geprüft
-state.overrides = { t2: { [day]: 'NS' } };
-r = Planner.generate(state);
-assert.strictEqual(r.plan.t2[day], 'NS');
-assert.ok(errors(r).some(w => w.pid === 't2' && w.date === day), 'Verstoß gegen „nie Nacht“ wird gemeldet');
+// 4. Handänderung im fertigen Plan wird geprüft
+state = Planner.defaultState(new Date('2026-11-12T00:00:00Z'));
+let plan = Planner.generate(state).plan;
+plan.t2[day] = 'NS';
+assert.ok(errors(Planner.evaluate(state, plan)).some(w => w.pid === 't2' && w.date === day), 'Verstoß gegen „nie Nacht“ wird gemeldet');
+
+// 4a. Krankmeldung im Plan: „Aktualisieren“ schlägt die kleinste Änderung vor
+const label = { FRUEH: 'Früh', NS: 'Nacht', SP2: 'Spät' };
+for (const [d, S] of [['2026-11-18', 'FRUEH'], ['2026-11-18', 'NS'], ['2026-11-19', 'SP2'], ['2026-11-27', 'FRUEH'], ['2026-11-21', 'FRUEH'], ['2026-11-22', 'NS']]) {
+  state = Planner.defaultState(new Date('2026-11-12T00:00:00Z'));
+  plan = Planner.generate(state).plan;
+  const sick = state.people.filter(p => plan[p.id][d] === S);
+  for (const p of sick) { state.marks[p.id] = { [d]: 'K' }; delete plan[p.id][d]; }
+  assert.ok(errors(Planner.evaluate(state, plan)).length > 0, 'Lücke wird gemeldet');
+  const fix = Planner.proposeFix(state, plan);
+  assert.strictEqual(fix.open.length, 0);
+  assert.strictEqual(fix.changes.length, 1, 'genau eine Änderung für ' + S + ' am ' + d);
+  assert.strictEqual(fix.changes[0].date, d);
+  assert.deepStrictEqual(errors(Planner.evaluate(state, fix.plan)), [], 'Vorschlag ohne Regelverstöße');
+  const c = fix.changes[0], who = state.people.find(p => p.id === c.pid);
+  console.log(`${d} ${label[S]} fällt aus: ${who.name} ${c.from ? 'wechselt von ' + c.from : 'springt ein'}`);
+}
+// 4b. Ohne Lücke gibt es keinen Vorschlag; eine eingetragene Abwesenheit wird ausgetragen und ersetzt
+state = Planner.defaultState(new Date('2026-11-12T00:00:00Z'));
+plan = Planner.generate(state).plan;
+assert.strictEqual(Planner.proposeFix(state, plan).changes.length, 0);
+state.entries.push({ pid: 't6', type: 'abwesend', from: '2026-11-16', to: '2026-11-20' });
+let fix = Planner.proposeFix(state, plan);
+assert.deepStrictEqual(errors(Planner.evaluate(state, fix.plan)), []);
+assert.strictEqual(fix.changes.filter(c => c.pid === 't6' && !c.to).length, 5);
 
 console.log('Alle Prüfungen bestanden.');
 

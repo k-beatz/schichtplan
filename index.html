@@ -58,7 +58,12 @@
   td.wish { background-image: radial-gradient(circle at 85% 20%, var(--warn) 2px, transparent 3px); }
   .chip { display: inline-block; min-width: 38px; padding: 2px 4px; border-radius: 5px; font-size: 11px; font-weight: 600; border: 1.5px solid; color: var(--chip); }
   tr.group td { background: var(--group) !important; }
-  .chip.manual { text-decoration: underline; }
+  .absmark { font-size: 11px; font-weight: 700; color: var(--muted); }
+  td.prop { box-shadow: inset 0 0 0 2px var(--accent); }
+  .proposal { border: 2px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .proposal ul { margin: 6px 0 10px; padding-left: 18px; }
+  .proposal .open { color: var(--err); }
+  .proposal .row { display: flex; gap: 8px; flex-wrap: wrap; }
   .s-FRUEH { background: #fdf3cf; border-color: #e6b100; } .s-TAG { background: #dff3e6; border-color: #1f8f55; }
   .s-SP1 { background: #e4e6fa; border-color: #4a4fb5; } .s-SP2 { background: #dff1f7; border-color: #1b93b8; }
   .s-NS { background: #efe6f8; border-color: #7a3fa8; } .s-T_HG { background: #ecf6d9; border-color: #8bbd2f; }
@@ -90,8 +95,8 @@
   <h1>Schichtplan</h1>
   <label>Beginn (Montag)<input type="date" id="start"></label>
   <label>Wochen<input type="number" id="weeks" min="1" max="26" style="width:70px"></label>
-  <button class="primary" id="variant">Neue Variante berechnen</button>
-  <button id="clearManual">Handänderungen verwerfen</button>
+  <button class="primary" id="refresh">Aktualisieren</button>
+  <button id="variant">Neuen Plan berechnen</button>
   <button id="reset">Beispieldaten laden</button>
 </header>
 <nav id="tabs"></nav>
@@ -143,11 +148,11 @@ const Planner = (() => {
   const holiday = d => holidays(+d.slice(0, 4))[d];
 
   function indexEntries(state) {
-    const by = {};
+    const by = {}, marks = state.marks || {};
     for (const e of state.entries || []) (by[e.pid] = by[e.pid] || []).push(e);
     const on = (pid, date) => (by[pid] || []).filter(e => e.from <= date && date <= e.to);
     return {
-      hard: (pid, date) => on(pid, date).some(e => e.type === 'abwesend'),
+      hard: (pid, date) => !!(marks[pid] && marks[pid][date]) || on(pid, date).some(e => e.type === 'abwesend'),
       soft: (pid, date) => on(pid, date).some(e => e.type === 'frei'),
       wishes: (pid, date) => on(pid, date).filter(e => e.type === 'schicht' || e.type === 'nicht'),
     };
@@ -328,17 +333,69 @@ const Planner = (() => {
       }
     }
 
-    // 5. Handänderungen
-    const manual = {};
-    for (const pid in state.overrides || {}) for (const d in state.overrides[pid]) {
-      if (!plan[pid] || !days.includes(d)) continue;
-      const v = state.overrides[pid][d];
-      if (v === 'FREI') delete plan[pid][d]; else plan[pid][d] = v;
-      manual[pid + '|' + d] = true;
-    }
+    const name = Object.fromEntries(people.map(p => [p.id, p.name]));
+    notes.forEach(n => n.text = `${name[n.pid]}: ${n.text}`);
+    return { days, plan, warnings: validate(state, days, plan).concat(notes), stats: stats(state, days, plan, E) };
+  }
 
-    const warnings = validate(state, days, plan).concat(notes.filter(n => !manual[n.pid + '|' + n.date]));
-    return { days, plan, warnings, manual, stats: stats(state, days, plan, E) };
+  const daysOf = state => { const d = []; for (let i = 0; i < state.weeks * 7; i++) d.push(addDays(state.start, i)); return d; };
+
+  // Prüft einen vorhandenen (auch von Hand geänderten) Plan
+  function evaluate(state, plan) {
+    const days = daysOf(state);
+    state.people.forEach(p => plan[p.id] = plan[p.id] || {});
+    return { days, plan, warnings: validate(state, days, plan), stats: stats(state, days, plan, indexEntries(state)) };
+  }
+
+  // Schlägt für einen vorhandenen Plan die kleinste Änderung vor, die alle Lücken schließt.
+  // Der übrige Plan bleibt unverändert.
+  function proposeFix(state, planIn) {
+    const days = daysOf(state), E = indexEntries(state), people = state.people;
+    const plan = {}; people.forEach(p => plan[p.id] = Object.assign({}, planIn[p.id]));
+    const changes = [], open = [];
+    const set = (p, d, to) => { changes.push({ pid: p.id, date: d, from: plan[p.id][d] || null, to }); if (to) plan[p.id][d] = to; else delete plan[p.id][d]; };
+    const count = d => { const c = {}; for (const p of people) { const s = plan[p.id][d]; if (s) c[s] = (c[s] || 0) + 1; } return c; };
+    const total = p => Object.keys(plan[p.id]).length;
+    const runWith = (p, i) => {
+      let n = 1;
+      for (let k = i - 1; k >= 0 && plan[p.id][days[k]]; k--) n++;
+      for (let k = i + 1; k < days.length && plan[p.id][days[k]]; k++) n++;
+      return n;
+    };
+    // 1. Wer abwesend ist, wird ausgetragen
+    for (const p of people) for (const d of days) if (plan[p.id][d] && E.hard(p.id, d)) set(p, d, null);
+    // 2. Jede Lücke mit der naheliegendsten Person schließen
+    days.forEach((d, i) => {
+      const we = dow(d) > 4;
+      for (const S of we ? ['NS', 'FRUEH', 'SP2'] : ['NS', 'FRUEH', 'SP2', 'TAG']) {
+        const cnt = count(d); if (cnt[S]) continue;
+        let best = null;
+        for (const p of people) {
+          if (E.hard(p.id, d) || pref(p, S) === 'nie') continue;
+          const cur = plan[p.id][d]; let c;
+          if (cur) {                                   // wechselt am selben Tag die Schicht
+            if (cur === S || SHIFTS[cur].fixedOnly) continue;
+            const sole = cnt[cur] === 1;
+            if (sole && WE.includes(cur)) continue;    // würde eine andere Pflichtschicht aufreißen
+            if (S === 'TAG' && cur === 'TAG') continue;
+            c = 10 * Math.abs(SHIFTS[cur].idx - SHIFTS[S].idx)      // benachbarte Schicht zuerst
+              + (cur === 'TAG' && sole ? 120 : 0)                   // Tagschicht entfällt nur im Notfall
+              + (p.group === 'fixed' ? 40 : 0);
+          } else {                                     // springt an einem freien Tag ein
+            if (S === 'TAG' || p.group === 'fixed' || runWith(p, i) > 6) continue;
+            c = p.group === 'aushilfe' ? 60 + 3 * total(p) : 150;
+          }
+          const prev = i > 0 && plan[p.id][days[i - 1]], next = plan[p.id][days[i + 1]];
+          if (prev && SHIFTS[prev].idx > SHIFTS[S].idx) c += prev === 'NS' ? 200 : 25;
+          if (next && SHIFTS[next].idx < SHIFTS[S].idx) c += S === 'NS' ? 200 : 25;
+          if (pref(p, S) === 'ungern') c += 40;
+          if (E.soft(p.id, d)) c += 60;
+          if (!best || c < best.c) best = { p, c };
+        }
+        if (best) set(best.p, d, S); else if (S !== 'TAG') open.push({ date: d, shift: S });
+      }
+    });
+    return { changes, open, plan };
   }
 
   function validate(state, days, plan) {
@@ -406,10 +463,10 @@ const Planner = (() => {
     people.push({ id: 'f2', name: 'T 09:00–15:00', group: 'fixed', fixedShift: 'T_HG', fixedDays: [0, 1, 2, 3, 4] });
     people.push({ id: 'f3', name: 'T 08:00–12:00', group: 'fixed', fixedShift: 'T_LILA', fixedDays: [3] });
     for (let i = 1; i <= 6; i++) people.push({ id: 'a' + i, name: 'Aushilfe ' + i, group: 'aushilfe', prefs: {} });
-    return { start: nextMonday(today), weeks: 13, seed: 0, people, entries: [], overrides: {} };
+    return { start: nextMonday(today), weeks: 13, seed: 0, people, entries: [], marks: {} };
   }
 
-  return { SHIFTS, ROT, WE, DOW, generate, defaultState, addDays, dow, nextMonday, holiday, easter };
+  return { SHIFTS, ROT, WE, DOW, generate, evaluate, proposeFix, defaultState, addDays, dow, nextMonday, holiday, easter };
 })();
 if (typeof module !== 'undefined') module.exports = Planner;
 </script>
@@ -422,14 +479,21 @@ if (typeof module !== 'undefined') module.exports = Planner;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const GROUPS = { tech: 'Feste Techniker', fixed: 'Mitlaufende', aushilfe: 'Aushilfen' };
   const TYPES = { abwesend: 'Abwesend (Urlaub, krank)', frei: 'Wunsch: frei', schicht: 'Wunsch: diese Schicht', nicht: 'Wunsch: nicht diese Schicht' };
+  const MARKS = { K: 'Krank', U: 'Urlaub' };
   const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
   const deDate = d => d.slice(8) + '.' + d.slice(5, 7) + '.';
+  const dayLabel = d => DOW[Planner.dow(d)] + ' ' + deDate(d);
+  const sl = s => s ? SHIFTS[s].label : 'frei';
 
-  let state, result, tab = 'plan';
+  let state, result, tab = 'plan', proposal = null, dirty = false;
   try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
   if (!state || !state.people) state = Planner.defaultState();
+  state.marks = state.marks || {}; delete state.overrides;
+  const newPlan = () => { state.plan = Planner.generate(state).plan; proposal = null; dirty = false; };
+  if (!state.plan) newPlan();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
-  const update = () => { save(); result = Planner.generate(state); render(); };
+  const update = () => { save(); result = Planner.evaluate(state, state.plan); render(); };
+  const edited = () => { proposal = null; dirty = true; update(); };
 
   function render() {
     $('#start').value = state.start; $('#weeks').value = state.weeks;
@@ -439,17 +503,35 @@ if (typeof module !== 'undefined') module.exports = Planner;
     $('#pop').style.display = 'none';
   }
 
+  function viewProposal() {
+    if (!proposal) return '';
+    const name = Object.fromEntries(state.people.map(p => [p.id, p.name]));
+    const { changes, open } = proposal;
+    if (!changes.length && !open.length)
+      return '<div class="proposal"><strong>Keine Änderung nötig.</strong> Alle Pflichtschichten sind besetzt.<div class="row" style="margin-top:8px"><button id="reject">Schließen</button></div></div>';
+    let h = '<div class="proposal"><strong>Vorschlag</strong> (im Plan blau umrandet)<ul>';
+    for (const c of changes)
+      h += `<li>${dayLabel(c.date)} · ${esc(name[c.pid])}: ` + (c.to
+        ? (c.from ? `wechselt von ${sl(c.from)} auf ${sl(c.to)}` : `springt für ${sl(c.to)} ein`)
+        : `wird aus ${sl(c.from)} ausgetragen (abwesend)`) + '</li>';
+    for (const o of open) h += `<li class="open">${dayLabel(o.date)} · ${sl(o.shift)}: kein Ersatz gefunden</li>`;
+    return h + '</ul><div class="row">' + (changes.length ? '<button class="primary" id="accept">Vorschlag übernehmen</button>' : '') + '<button id="reject">Verwerfen</button></div></div>';
+  }
+
   function viewPlan() {
-    const { days, plan, warnings, manual } = result;
+    const { days, warnings } = result;
+    const plan = proposal ? proposal.plan : state.plan;
+    const prop = {}; if (proposal) for (const c of proposal.changes) prop[c.pid + '|' + c.date] = 1;
     const n = l => warnings.filter(w => w.level === l).length;
     const dayErr = {}; const cellBad = {};
     for (const w of warnings) if (w.level === 'error') { if (w.pid) cellBad[w.pid + '|' + w.date] = 1; else dayErr[w.date] = 1; }
     const E = {}; for (const e of state.entries) for (const d of days) if (e.from <= d && d <= e.to) E[e.pid + '|' + d] = e.type === 'abwesend' ? 'off' : (E[e.pid + '|' + d] || 'wish');
     const cls = d => (Planner.dow(d) > 4 ? ' we' : '') + (Planner.holiday(d) ? ' hol' : '') + (d.slice(8) === '01' ? ' monthstart' : '');
-    let h = `<div class="summary">
+    let h = viewProposal() + `<div class="summary">
       ${n('error') ? `<span class="pill error">${n('error')} Regelverstöße</span>` : '<span class="pill ok">Alle Pflichtschichten besetzt, keine Regelverstöße</span>'}
-      <span class="pill warn">${n('warn')} Warnungen</span><span class="pill info">${n('info')} Hinweise</span></div>
-      <p class="hint">Ein Klick auf ein Feld ändert den Eintrag von Hand. Unterstrichene Einträge sind Handänderungen.</p>
+      <span class="pill warn">${n('warn')} Warnungen</span><span class="pill info">${n('info')} Hinweise</span>
+      ${dirty ? '<span class="pill">Plan geändert: „Aktualisieren“ prüft, ob jemand einspringen muss</span>' : ''}</div>
+      <p class="hint">Ein Klick auf ein Feld ändert den Eintrag, zum Beispiel auf „Krank“. „Aktualisieren“ schlägt danach die kleinste nötige Änderung vor und lässt den übrigen Plan unverändert.</p>
       <div class="gridwrap"><table class="grid"><thead><tr><th class="name"></th>`;
     let i = 0;
     while (i < days.length) {
@@ -463,9 +545,9 @@ if (typeof module !== 'undefined') module.exports = Planner;
       for (const p of ps) {
         h += `<tr><th class="name">${esc(p.name)}</th>`;
         for (const d of days) {
-          const s = plan[p.id][d], k = p.id + '|' + d;
-          h += `<td class="cell${cls(d)}${cellBad[k] ? ' bad' : ''}${E[k] ? ' ' + E[k] : ''}" data-pid="${p.id}" data-date="${d}">`
-            + (s ? `<span class="chip s-${s}${manual[k] ? ' manual' : ''}" title="${SHIFTS[s].time}">${SHIFTS[s].label}</span>` : (manual[k] ? '–' : '')) + '</td>';
+          const s = (plan[p.id] || {})[d], k = p.id + '|' + d, m = (state.marks[p.id] || {})[d];
+          h += `<td class="cell${cls(d)}${cellBad[k] ? ' bad' : ''}${m ? ' off' : E[k] ? ' ' + E[k] : ''}${prop[k] ? ' prop' : ''}" data-pid="${p.id}" data-date="${d}">`
+            + (s ? `<span class="chip s-${s}" title="${SHIFTS[s].time}">${SHIFTS[s].label}</span>` : m ? `<span class="absmark" title="${MARKS[m]}">${m}</span>` : '') + '</td>';
         }
         h += '</tr>';
       }
@@ -473,17 +555,17 @@ if (typeof module !== 'undefined') module.exports = Planner;
     h += '<tr class="status"><th class="name">Pflichtschichten</th>' + days.map(d => `<td class="${cls(d)} ${dayErr[d] ? 'st-error' : 'st-ok'}">${dayErr[d] ? '!' : '✓'}</td>`).join('') + '</tr>';
     h += '</tbody></table></div><div class="legend">'
       + Object.entries(SHIFTS).map(([k, s]) => `<span><span class="chip s-${k}">${s.label}</span> ${s.time}</span>`).join('')
-      + '<span><span class="swatch"></span> Feiertag (NRW)</span><span>Schraffiert: abwesend</span><span>Punkt: Wunsch eingetragen</span></div>';
+      + '<span><span class="swatch"></span> Feiertag (NRW)</span><span>Schraffiert: abwesend (K krank, U Urlaub)</span><span>Punkt: Wunsch eingetragen</span></div>';
     const order = { error: 0, warn: 1, info: 2 }, lab = { error: 'Verstoß', warn: 'Warnung', info: 'Hinweis' };
     const ws = warnings.slice().sort((a, b) => order[a.level] - order[b.level] || a.date.localeCompare(b.date));
-    h += '<ul class="warnings">' + ws.map(w => `<li><span class="lv ${w.level}">${lab[w.level]}</span>${DOW[Planner.dow(w.date)]} ${deDate(w.date)} · ${esc(w.text)}</li>`).join('') + '</ul>';
+    h += '<ul class="warnings">' + ws.map(w => `<li><span class="lv ${w.level}">${lab[w.level]}</span>${dayLabel(w.date)} · ${esc(w.text)}</li>`).join('') + '</ul>';
     return h;
   }
 
   const shiftOpts = (sel, keys) => keys.map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${SHIFTS[k].label} ${SHIFTS[k].time}</option>`).join('');
 
   function viewPeople() {
-    let h = `<p class="hint">Die Reihenfolge der Techniker bestimmt, wer zuerst Wochenenddienst hat. „Nie“ ist eine feste Vorgabe, „ungern“ ein Wunsch.</p>
+    let h = `<p class="hint">Die Reihenfolge der Techniker bestimmt, wer zuerst Wochenenddienst hat. „Nie“ ist eine feste Vorgabe, „ungern“ ein Wunsch. Änderungen hier wirken auf die Prüfung sofort und auf die Einteilung, sobald du einen neuen Plan berechnest.</p>
       <div class="scroll"><table class="plain"><tr><th>Name</th><th>Gruppe</th><th>Schichten</th><th></th></tr>`;
     state.people.forEach((p, i) => {
       let mid;
@@ -503,7 +585,7 @@ if (typeof module !== 'undefined') module.exports = Planner;
 
   function viewEntries() {
     const name = Object.fromEntries(state.people.map(p => [p.id, p.name]));
-    let h = `<div class="form">
+    let h = `<p class="hint">Einträge für längere Zeiträume. Einzelne Tage lassen sich auch direkt im Plan anklicken. Danach im Plan auf „Aktualisieren“ klicken.</p><div class="form">
       <label>Person<select id="ePid">${state.people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
       <label>Art<select id="eType">${Object.entries(TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
       <label>Schicht<select id="eShift">${shiftOpts('', ROT)}</select></label>
@@ -538,22 +620,27 @@ if (typeof module !== 'undefined') module.exports = Planner;
     return h + '</table></div>';
   }
 
+  // Knopf, der erst beim zweiten Klick ausführt (Dialogfenster sind nicht überall erlaubt)
+  function twoStep(btn, ask, fn) {
+    const label = btn.textContent; let armed = 0;
+    const disarm = () => { armed = 0; btn.textContent = label; };
+    btn.onclick = () => {
+      if (armed && Date.now() - armed < 5000) { disarm(); fn(); return; }
+      armed = Date.now(); btn.textContent = ask; setTimeout(() => { if (armed) disarm(); }, 5000);
+    };
+  }
+
   // Ereignisse
   $('#tabs').onclick = e => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; render(); } };
   $('#start').onchange = e => {
     if (!e.target.value) return;
     let s = e.target.value; while (Planner.dow(s) !== 0) s = Planner.addDays(s, -1);
-    state.start = s; update();
+    state.start = s; newPlan(); update();
   };
-  $('#weeks').onchange = e => { state.weeks = Math.max(1, Math.min(26, +e.target.value || 13)); update(); };
-  $('#variant').onclick = () => { state.seed = 1 + Math.floor(Math.random() * 1e9); update(); };
-  $('#clearManual').onclick = () => { state.overrides = {}; update(); };
-  let armed = 0;
-  $('#reset').onclick = e => {   // zweiter Klick bestätigt, weil Dialogfenster nicht überall erlaubt sind
-    if (Date.now() - armed < 5000) { armed = 0; e.target.textContent = 'Beispieldaten laden'; state = Planner.defaultState(); update(); return; }
-    armed = Date.now(); e.target.textContent = 'Wirklich alles ersetzen?';
-    setTimeout(() => { if (armed) { armed = 0; e.target.textContent = 'Beispieldaten laden'; } }, 5000);
-  };
+  $('#weeks').onchange = e => { state.weeks = Math.max(1, Math.min(26, +e.target.value || 13)); newPlan(); update(); };
+  $('#refresh').onclick = () => { proposal = Planner.proposeFix(state, state.plan); tab = 'plan'; render(); window.scrollTo(0, 0); };
+  twoStep($('#variant'), 'Handänderungen gehen verloren. Sicher?', () => { state.seed = 1 + Math.floor(Math.random() * 1e9); newPlan(); tab = 'plan'; update(); });
+  twoStep($('#reset'), 'Wirklich alles ersetzen?', () => { state = Planner.defaultState(); newPlan(); update(); });
 
   $('#view').addEventListener('change', e => {
     const t = e.target, f = t.dataset.f; if (!f) return;
@@ -563,16 +650,18 @@ if (typeof module !== 'undefined') module.exports = Planner;
     if (f === 'fixedShift') p.fixedShift = t.value;
     if (f === 'day') { const d = +t.dataset.d; p.fixedDays = (p.fixedDays || []).filter(x => x !== d); if (t.checked) p.fixedDays.push(d); }
     if (f === 'pref') { p.prefs = p.prefs || {}; if (t.value === 'ok') delete p.prefs[t.dataset.s]; else p.prefs[t.dataset.s] = t.value; }
-    update();
+    if (f === 'name') update(); else edited();
   });
   $('#view').addEventListener('click', e => {
     const t = e.target;
-    if (t.id === 'addPerson') { state.people.push({ id: 'p' + Date.now(), name: 'Neue Person', group: 'aushilfe', prefs: {} }); update(); }
-    else if (t.dataset.del) { const p = state.people.splice(+t.dataset.del, 1)[0]; state.entries = state.entries.filter(x => x.pid !== p.id); delete state.overrides[p.id]; update(); }
-    else if (t.dataset.edel) { state.entries.splice(+t.dataset.edel, 1); update(); }
+    if (t.id === 'accept') { state.plan = proposal.plan; proposal = null; dirty = false; update(); }
+    else if (t.id === 'reject') { proposal = null; render(); }
+    else if (t.id === 'addPerson') { state.people.push({ id: 'p' + Date.now(), name: 'Neue Person', group: 'aushilfe', prefs: {} }); update(); }
+    else if (t.dataset.del) { const p = state.people.splice(+t.dataset.del, 1)[0]; state.entries = state.entries.filter(x => x.pid !== p.id); delete state.plan[p.id]; delete state.marks[p.id]; edited(); }
+    else if (t.dataset.edel) { state.entries.splice(+t.dataset.edel, 1); edited(); }
     else if (t.id === 'addEntry') {
       let from = $('#eFrom').value, to = $('#eTo').value; if (!from) return; if (!to || to < from) to = from;
-      state.entries.push({ pid: $('#ePid').value, type: $('#eType').value, shift: $('#eShift').value, from, to }); update();
+      state.entries.push({ pid: $('#ePid').value, type: $('#eType').value, shift: $('#eShift').value, from, to }); edited();
     } else {
       const cell = t.closest('td.cell'); if (cell) openPop(cell);
     }
@@ -581,18 +670,19 @@ if (typeof module !== 'undefined') module.exports = Planner;
   function openPop(cell) {
     const { pid, date } = cell.dataset, pop = $('#pop');
     const p = state.people.find(x => x.id === pid);
-    pop.innerHTML = `<div class="t">${esc(p.name)} · ${DOW[Planner.dow(date)]} ${deDate(date)}</div><div class="b">`
+    pop.innerHTML = `<div class="t">${esc(p.name)} · ${dayLabel(date)}</div><div class="b">`
       + Object.keys(SHIFTS).map(k => `<button data-v="${k}"><span class="chip s-${k}">${SHIFTS[k].label}</span></button>`).join('')
-      + '<button data-v="FREI">Frei</button><button data-v="AUTO">Automatisch</button></div>';
+      + '<button data-v="FREI">Frei</button><button data-v="K">Krank</button><button data-v="U">Urlaub</button></div>';
     const r = cell.getBoundingClientRect();
     pop.style.display = 'block';
     pop.style.left = Math.max(8, Math.min(window.innerWidth - 230, r.left + window.scrollX)) + 'px';
     pop.style.top = (r.bottom + window.scrollY + 4) + 'px';
     pop.onclick = e => {
       const b = e.target.closest('button'); if (!b) return;
-      const o = state.overrides[pid] = state.overrides[pid] || {};
-      if (b.dataset.v === 'AUTO') delete o[date]; else o[date] = b.dataset.v;
-      update();
+      const v = b.dataset.v, row = state.plan[pid] = state.plan[pid] || {}, marks = state.marks[pid] = state.marks[pid] || {};
+      delete marks[date]; delete row[date];
+      if (MARKS[v]) marks[date] = v; else if (v !== 'FREI') row[date] = v;
+      edited();
     };
   }
   document.addEventListener('click', e => { if (!e.target.closest('#pop') && !e.target.closest('td.cell')) $('#pop').style.display = 'none'; });
